@@ -1,0 +1,20 @@
+<
+>
+# I am a comment on a line
+
+1234
+5678 # With a comment on the end
+hello
+$me
+me='hello'
+world="hello world\n"
+hello_world
+&&
+&
+||
+|
+'i am a long string'
+here is three
+./cmd arg1 arg2 &
+./cmd arg1 arg2 > file_out < file_in
+./cmd arg1 arg2 > file_out < file_in && cmd2
