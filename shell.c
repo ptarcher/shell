@@ -6,6 +6,8 @@
 //  Creation Date:  November, 2011
 //
 
+#define USE_DTRACE 0
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +17,13 @@
 #include <errno.h>
 
 #include "parser.h"
+
+#if USE_DTRACE
+#define DTRACE printf
+#else
+#define DTRACE(...)
+#endif /* USE_DTRACE */
+
 
 /*****************************************************************************
  *                              T Y P E S
@@ -36,6 +45,19 @@ typedef struct {
 Env_t env[MAX_ENVS];
 
 /****************************************************************************/
+void env_cleanup(void)
+{
+    size_t i;
+    for (i = 0; i < MAX_ENVS; i++) {
+        if (env[i].name) {
+            free(env[i].name);
+            free(env[i].value);
+            env[i].name  = NULL;
+            env[i].value = NULL;
+        }
+    }
+}
+
 int my_setenv(char *name, char *value, int overwrite)
 {
     size_t i;
@@ -72,6 +94,7 @@ int my_setenv(char *name, char *value, int overwrite)
                 env[i].name = NULL;
                 return -ENOMEM;
             }
+            break;
         }
     }
 
@@ -83,19 +106,83 @@ char *my_getenv(char *name)
     size_t i;
 
     for (i = 0; i < MAX_ENVS; i++) {
-        if (strcmp(env[i].name, name) == 0) {
+        if (env[i].name && (strcmp(env[i].name, name) == 0)) {
             return env[i].value;
         }
     }
 
+    DTRACE("Unable to find %s\n", name);
+
     return NULL;
 }
+
+int Command_Test(int argc, char *argv[])
+{
+    if (argc > 3 && (strcmp(argv[1], "-n") == 0)) {
+        if (strcmp(argv[2], "") == 0) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    return 0;
+}
+
+int Command_Echo(int argc, char *argv[])
+{
+    int i;
+
+    for (i = 1; i < argc; i++) {
+        printf("%s%s", argv[i], (i + 1 < argc) ? " " : "");
+    }
+    printf("\n");
+
+    return 0;
+}
+
+int Command_Seq(int argc, char *argv[])
+{
+
+    if (argc == 3) {
+        int low, high;
+        int i;
+
+        low  = strtol(argv[1], NULL, 0);
+        high = strtol(argv[2], NULL, 0);
+
+        for (i = low; i <= high; i++) {
+            printf("%d\n", i);
+        }
+
+        printf("\n");
+    }
+
+    return 0;
+}
+
 
 int Shell_RunCommand(int argc, char *argv[], bool background)
 {
     int i;
+    int r;
 
-    printf("Running command %s with %d args %s\n", argv[0], argc, background ? "in the background" : "");
+    DTRACE("Running command ");
+    for (i = 0; i < argc; i++) {
+        DTRACE("'%s' ", argv[i]);
+    }
+    DTRACE("%s\n", background ? "in the background" : "");
+    DTRACE("\n");
+
+    if (strcmp(argv[0], "[") == 0) {
+        r = Command_Test(argc, argv);
+    } else if (strcmp(argv[0], "echo") == 0) {
+        r = Command_Echo(argc, argv);
+    } else if (strcmp(argv[0], "seq") == 0) {
+        r = Command_Seq(argc, argv);
+    } else {
+        r = 0;
+    }
 
     /* Clean up */
     for (i = 0; i < argc; i++) {
@@ -103,7 +190,7 @@ int Shell_RunCommand(int argc, char *argv[], bool background)
     }
     free(argv);
 
-    return 0;
+    return r;
 }
 
 void Shell_ParseInput(Parser_t *parser)
@@ -122,6 +209,7 @@ void Shell_ParseInput(Parser_t *parser)
 
     /* Start building the AST */
     program = AST_ParseProgram(parser);
+
     AST_PrintProgram(program);
     AST_ProcessProgram(program);
     AST_FreeProgram(program);
@@ -157,9 +245,11 @@ void Shell_ParseFile(char *file)
     parser.colnum   = 1;
 
     while (fgets(parser.line, sizeof(parser.line), f)) {
-        printf("line = %s\n", parser.line);
+        DTRACE("line = %s\n", parser.line);
         Shell_ParseInput(&parser);
     }
+
+    fclose(f);
 }
 
 int main(int argc, char *argv[]) 
@@ -169,6 +259,8 @@ int main(int argc, char *argv[])
     } else {
         Shell_ParseFile(argv[1]);
     }
+    env_cleanup();
+
 	return 0;
 }
 

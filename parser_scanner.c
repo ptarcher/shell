@@ -6,6 +6,8 @@
 //  Creation Date:  November, 2011
 //
 
+#define USE_DTRACE 1
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +16,12 @@
 #include <stdbool.h>
 
 #include "parser.h"
+
+#if USE_DTRACE
+#define DTRACE printf
+#else
+#define DTRACE(...)
+#endif /* USE_DTRACE */
 
 /*****************************************************************************
  *                              T Y P E S
@@ -25,10 +33,15 @@
 int my_setenv(char *name, char *value, int overwrite);
 char *my_getenv(char *name);
 
+#define countof(a) (sizeof(a)/sizeof(*a))
 
 /*****************************************************************************
  *                     G L O B A L     V A R I A B L E S
  ****************************************************************************/
+typedef struct {
+    const char        *keyword;
+    const Token_Type_t type;
+} Scanner_Keyword_t;
 
 /****************************************************************************/
 char *_DEBUG_TokenToString(int t) 
@@ -40,6 +53,15 @@ char *_DEBUG_TokenToString(int t)
         case TOKEN_ID:         return "TOKEN_ID";
         case TOKEN_DOLLAR:     return "TOKEN_DOLLAR";
         case TOKEN_STRING:     return "TOKEN_STRING";
+
+        case TOKEN_IF:         return "TOKEN_IF";
+        case TOKEN_THEN:       return "TOKEN_THEN";
+        case TOKEN_ELSE:       return "TOKEN_ELSE";
+        case TOKEN_FI:         return "TOKEN_FI";
+        case TOKEN_FOR:        return "TOKEN_FOR";
+        case TOKEN_WHILE:      return "TOKEN_WHILE";
+        case TOKEN_DO:         return "TOKEN_DO";
+        case TOKEN_DONE:       return "TOKEN_DONE";
 
         case TOKEN_AND:        return "TOKEN_AND";
         case TOKEN_ANDAND:     return "TOKEN_ANDAND";
@@ -56,7 +78,23 @@ char *_DEBUG_TokenToString(int t)
 
 int iswordchar(char c)
 {
-    return ((isalnum(c)) || (c == '_') || (c == '.') || (c == '/'));
+    return ((isalnum(c)) || 
+            (c == '_')   || 
+            (c == '-')   ||
+            (c == '.')   || 
+            (c == '/')   ||
+            (c == '?')   ||
+            (c == '!')   ||
+            (c == '@')   ||
+            (c == '#')   ||
+            (c == '%')   ||
+            (c == '^')   ||
+            (c == '&')   ||
+            (c == '(')   ||
+            (c == ')')   ||
+            (c == '[')   ||
+            (c == ']')   ||
+            (c == '+'));
 }
 
 int iscontrolchar(char c)
@@ -144,6 +182,17 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
     Token_t *token = NULL;
     Token_Type_t type;
 
+    const Scanner_Keyword_t keywords[] = {
+        {"if",      TOKEN_IF},
+        {"then",    TOKEN_THEN},
+        {"else",    TOKEN_ELSE},
+        {"fi",      TOKEN_FI},
+        {"for",     TOKEN_FOR},
+        {"while",   TOKEN_WHILE},
+        {"do",      TOKEN_DO},
+        {"done",    TOKEN_DONE},
+    };
+
     Scanner_SkipComments(parser);
 
     parser->token_startline = parser->linenum;
@@ -172,10 +221,12 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             }
             break;
 
+#if 0
         case '0' ... '9':
             Scanner_ScanNumber(parser);
             type = TOKEN_NUMBER;
             break;
+#endif
 
         case '>':
             Scanner_Accept(parser, STORE_CHAR);
@@ -189,17 +240,26 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
 
         case '$':
         {
-            char *value;
+            int require_bracket = 0;
 
             Scanner_Accept(parser, IGNORE_CHAR);
-            Scanner_ScanWord(parser);
-            type = TOKEN_ID;
-            value = my_getenv(parser->token);
-            if (value) {
-                strcpy(parser->token, value);
-            } else {
-                strcpy(parser->token, "");
+
+            if (parser->c == '{') {
+                require_bracket = true;
+                Scanner_Accept(parser, IGNORE_CHAR);
             }
+
+            Scanner_ScanWord(parser);
+
+            if (require_bracket) {
+                if (parser->c != '}') {
+                    type = TOKEN_ERROR;
+                    break;
+                }
+                Scanner_Accept(parser, IGNORE_CHAR);
+            } 
+
+            type = TOKEN_DOLLAR;
             break;
         }
 
@@ -289,8 +349,19 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
 
         default:
             if (iswordchar(parser->c)) {
+                int i;
+
                 Scanner_ScanWord(parser);
                 type = TOKEN_ID;
+
+                /* Search to see if it is a keyword */
+                for (i = 0; i < countof(keywords); i++) {
+                    if (strcmp(parser->token, keywords[i].keyword) == 0) {
+                        type =  keywords[i].type;
+                        break;
+                    }
+                }
+
             } else {
                 type = TOKEN_ERROR;
             }
@@ -312,11 +383,11 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
 
     /* Debug Print */
     if (token->type == TOKEN_ERROR) {
-        printf("%3d: t = %-20s token = '%s' %d:%d %c\n", 
+        DTRACE("%3d: t = %-20s token = '%s' %d:%d %c\n", 
                 token->linenum, _DEBUG_TokenToString(token->type), 
                 token->str, token->linenum, token->colnum, parser->c);
     } else {
-        printf("%3d: t = %-20s token = '%s'\n", 
+        DTRACE("%3d: t = %-20s token = '%s'\n", 
                 token->linenum, _DEBUG_TokenToString(token->type), 
                 token->str);
     }

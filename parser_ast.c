@@ -6,12 +6,20 @@
 //  Creation Date:  November, 2011
 //
 
+#define USE_DTRACE 0
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 
 #include "parser.h"
+
+#if USE_DTRACE
+#define DTRACE printf
+#else
+#define DTRACE(...)
+#endif /* USE_DTRACE */
 
 /*****************************************************************************
  *                              T Y P E S
@@ -20,9 +28,16 @@
 /*****************************************************************************
  *                 F U N C T I O N     P R O T O T Y P E S
  ****************************************************************************/
-int my_setenv(char *name, char *value);
+int my_setenv(char *name, char *value, int overwrite);
 char *my_getenv(char *name);
 int Shell_RunCommand(int argc, char *argv[], bool background);
+
+void AST_FreeAssignment(AST_Assignment_t *assignment);
+void AST_FreeRedirect(AST_Redirect_t *redirect);
+void AST_FreeCommand(AST_Command_t *command);
+void AST_FreeExpression(AST_Expression_t *expression);
+void AST_FreeStatement(AST_Statement_t *statement);
+void AST_FreeProgram(AST_Program_t *program);
 
 /*****************************************************************************
  *                     G L O B A L     V A R I A B L E S
@@ -31,7 +46,7 @@ int Shell_RunCommand(int argc, char *argv[], bool background);
 /****************************************************************************/
 void AST_PrintAssignment(AST_Assignment_t *assignment)
 {
-    printf("AST_Assignment: %s = %s\n", assignment->var->str, assignment->value->str);
+    DTRACE("AST_Assignment: %s = %s\n", assignment->var->str, assignment->value->str);
 }
 
 void AST_PrintCommand(AST_Command_t *command)
@@ -39,16 +54,16 @@ void AST_PrintCommand(AST_Command_t *command)
     int i;
 
     for (i = 0; i < command->argc; i++) {
-        printf("%s ", command->argv[i]->str);
+        DTRACE("%s ", command->argv[i]->str);
     }
     if (command->in) {
-        printf("< %s ", command->in->file->str);
+        DTRACE("< %s ", command->in->file->str);
     }
     if (command->out) {
-        printf("> %s ", command->out->file->str);
+        DTRACE("> %s ", command->out->file->str);
     }
     if (command->background) {
-        printf("&");
+        DTRACE("&");
     }
 }
 
@@ -61,34 +76,31 @@ void AST_PrintExpression(AST_Expression_t *expression)
             AST_PrintCommand(e->command);
         }
         if (e->op) {
-            printf("%s ", e->op->str);
+            DTRACE("%s ", e->op->str);
         }
     }
 }
 
 void AST_PrintStatement(AST_Statement_t *statement)
 {
-    int i;
-
-    for (i = 0; i < 1; i++) {
-        if (statement->assignment) {
-            AST_PrintAssignment(statement->assignment);
-        } else if (statement->expression) {
-            AST_PrintExpression(statement->expression);
-        }
+    if (statement->assignment) {
+        AST_PrintAssignment(statement->assignment);
+    } else if (statement->expression) {
+        AST_PrintExpression(statement->expression);
     }
-    printf("\n");
+
+    DTRACE("\n");
 }
 
 void AST_PrintProgram(AST_Program_t *program)
 {
     int i;
 
+    DTRACE("=======================================\n");
     for (i = 0; i < program->nstatements; i++) {
-        printf("=======================================\n");
         AST_PrintStatement(program->statements[i]);
-        printf("=======================================\n");
     }
+    DTRACE("=======================================\n");
 }
 
 /****************************************************************************/
@@ -119,6 +131,7 @@ assignment_fail:
     if (assignment) {
         if (assignment->var) {
             Scanner_TokenFree(assignment->var);
+            assignment->var = NULL;
         }
         free(assignment);
     }
@@ -201,14 +214,21 @@ command_fail:
             int i;
             for (i = 0; i < command->argc; i++) {
                 free(command->argv[i]);
+                command->argv[i] = NULL;
             }
+            free(command->argv);
+            command->argv = NULL;
         }
-        /* TODO: */
         if (command->in) {
+            AST_FreeRedirect(command->in);
+            command->in = NULL;
         }
         if (command->out) {
+            AST_FreeRedirect(command->out);
+            command->out = NULL;
         }
         free(command);
+        command = NULL;
     }
 
     return NULL;
@@ -216,8 +236,14 @@ command_fail:
 
 AST_Expression_t *AST_ParseExpression(Parser_t *parser, Token_t *cmd)
 {
-    AST_Expression_t *expression;
+    AST_Expression_t *expression = NULL;
 
+    if (cmd == NULL) {
+        cmd = parser->t;
+        Scanner_TokenAccept(parser);
+    }
+
+    /* TODO: Convert this into a while loop */
     if ((expression = calloc(1, sizeof(*expression))) == NULL) {
         goto expression_fail;
     }
@@ -230,35 +256,13 @@ AST_Expression_t *AST_ParseExpression(Parser_t *parser, Token_t *cmd)
 
         /* Parse Expression expects the ID to already be accepted */
         if (parser->t->type != TOKEN_ID     && 
-            parser->t->type != TOKEN_STRING &&
-            parser->t->type != TOKEN_DOLLAR) {
+                parser->t->type != TOKEN_STRING &&
+                parser->t->type != TOKEN_DOLLAR) {
             goto expression_fail;
         }
 
-        cmd = parser->t;
-        Scanner_TokenAccept(parser);
-
-        expression->expression = AST_ParseExpression(parser, cmd);
+        expression->expression = AST_ParseExpression(parser, NULL);
     }
-#if 0
-    } else if (parser->t->type == TOKEN_SEMICOLON) {
-        /* Consume the ; */
-        expression->op = parser->t;
-        Scanner_TokenAccept(parser);
-
-        if (parser->t->type != TOKEN_EOF && (parser->t->type == TOKEN_ID     ||
-                                             parser->t->type == TOKEN_STRING ||
-                                             parser->t->type == TOKEN_DOLLAR)) {
-            /* Another expression */
-            cmd = parser->t;
-            Scanner_TokenAccept(parser);
-
-            expression->expression = AST_ParseExpression(parser, cmd);
-        } else {
-            /* TODO: Something unexpected */
-        }
-    }
-#endif
 
     return expression;
 
@@ -279,15 +283,10 @@ expression_fail:
     return NULL;
 }
 
-AST_Statement_t *AST_ParseStatement(Parser_t *parser)
+AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
 {
-    Token_t         *cmd_or_var;
     AST_Statement_t *statement;
-
-    if (parser->t->type != TOKEN_ID && 
-        parser->t->type != TOKEN_STRING) {
-        return NULL;
-    }
+    Token_t         *cmd_or_var;
 
     if ((statement = calloc(1, sizeof(*statement))) == NULL) {
         return NULL;
@@ -304,6 +303,84 @@ AST_Statement_t *AST_ParseStatement(Parser_t *parser)
 
     if (parser->t->type == TOKEN_SEMICOLON) {
         Scanner_TokenConsume(parser);
+    }
+
+    return statement;
+}
+
+AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
+{
+    AST_Statement_t   *statement  = NULL;
+
+    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+        return NULL;
+    }
+
+    if ((statement->ifstatement = calloc(1, sizeof(*(statement->ifstatement)))) == NULL) {
+        return NULL;
+    }
+
+    Scanner_TokenConsume(parser);
+    statement->ifstatement->expression = AST_ParseExpression(parser, NULL);
+
+    if (parser->t->type != TOKEN_THEN) {
+        goto if_fail;
+    }
+    Scanner_TokenConsume(parser);
+
+    if (parser->t->type == TOKEN_ELSE) {
+        statement->ifstatement->elsestatement = AST_ParseIfStatement(parser);
+    }
+
+    if (parser->t->type != TOKEN_FI) {
+        goto if_fail;
+    }
+    Scanner_TokenConsume(parser);
+
+    return statement;
+
+if_fail:
+
+    return NULL;
+}
+
+AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
+{
+    printf("Found FOR statement\n");
+    return NULL;
+}
+
+AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
+{
+    printf("Found WHILE statement\n");
+    return NULL;
+}
+
+AST_Statement_t *AST_ParseStatement(Parser_t *parser)
+{
+    AST_Statement_t *statement;
+
+    switch(parser->t->type) {
+        case TOKEN_ID:
+        case TOKEN_STRING:
+            statement = AST_ParseExpressionOrAssignment(parser);
+            break;
+
+        case TOKEN_IF:
+            statement = AST_ParseIfStatement(parser);
+            break;
+
+        case TOKEN_FOR:
+            statement = AST_ParseForStatement(parser);
+            break;
+
+        case TOKEN_WHILE:
+            statement = AST_ParseWhileStatement(parser);
+            break;
+
+        default:
+            statement = NULL;
+            break;
     }
 
     return statement;
@@ -334,6 +411,9 @@ AST_Program_t *AST_ParseProgram(Parser_t *parser)
         }
     }
 
+    Scanner_TokenFree(parser->t);
+    parser->t = NULL;
+
     return program;
 
 program_fail:
@@ -343,13 +423,21 @@ program_fail:
         }
         free(program);
     }
+
+    Scanner_TokenFree(parser->t);
+    parser->t = NULL;
+
     return NULL;
+}
+
+void AST_ParseCleanup(Parser_t *parser)
+{
 }
 
 /****************************************************************************/
 void AST_ProcessAssignment(AST_Assignment_t *assignment)
 {
-    my_setenv(assignment->var->str, assignment->value->str);
+    my_setenv(assignment->var->str, assignment->value->str, true);
 }
 
 int AST_ProcessCommand(AST_Command_t *command) 
@@ -364,15 +452,27 @@ int AST_ProcessCommand(AST_Command_t *command)
         goto process_command_fail;
     }
 
+    /* Create the command arguments */
     for (i = 0; i < argc; i++) {
-        if ((argv[i] = strdup(command->argv[i]->str)) == NULL) {
+        char *value;
+
+        if (command->argv[i]->type == TOKEN_DOLLAR) {
+            if ((value = my_getenv(command->argv[i]->str)) == NULL) {
+                value = "";
+            }
+        } else {
+            value = command->argv[i]->str;
+        }
+
+        /* Take a copy of the string */
+        if ((argv[i] = strdup(value)) == NULL) {
             goto process_command_fail;
         }
     }
 
     r = Shell_RunCommand(argc, argv, command->background);
     snprintf(r_str, sizeof(r_str), "%d", r);
-    my_setenv("?", r_str);
+    my_setenv("?", r_str, true);
 
     return r;
 
@@ -401,7 +501,7 @@ void AST_ProcessExpression(AST_Expression_t *expression)
             (expression->op->type == TOKEN_SEMICOLON)) {
             AST_ProcessExpression(expression->expression);
         } else {
-            printf("Ignoring expression due to truth condition\n");
+            DTRACE("Ignoring expression due to truth condition\n");
         }
     }
 }
@@ -429,12 +529,62 @@ void AST_ProcessProgram(AST_Program_t *program)
 
 void AST_FreeAssignment(AST_Assignment_t *assignment)
 {
-    /* TODO */
+    if (assignment->var) {
+        Scanner_TokenFree(assignment->var);
+        assignment->var = NULL;
+    }
+
+    if (assignment->value) {
+        Scanner_TokenFree(assignment->value);
+        assignment->value = NULL;
+    }
+    free(assignment);
+    assignment = NULL;
+}
+
+void AST_FreeRedirect(AST_Redirect_t *redirect)
+{
+    Scanner_TokenFree(redirect->file);
+    free(redirect);
+}
+
+void AST_FreeCommand(AST_Command_t *command)
+{
+    if (command->argv) {
+        int i;
+        for (i = 0; i < command->argc; i++) {
+            Scanner_TokenFree(command->argv[i]);
+        }
+        free(command->argv);
+    }
+
+    if (command->in) {
+        AST_FreeRedirect(command->in);
+    }
+    if (command->out) {
+        AST_FreeRedirect(command->out);
+    }
+
+    free(command);
 }
 
 void AST_FreeExpression(AST_Expression_t *expression)
 {
-    /* TODO */
+    AST_Expression_t *e;
+    AST_Expression_t *next;
+
+    for (e = expression; e; e = next) {
+        next = e->expression;
+
+        if (e->command) {
+            AST_FreeCommand(e->command);
+        }
+        if (e->op) {
+            Scanner_TokenFree(e->op);
+        }
+
+        free(e);
+    }
 }
 
 void AST_FreeStatement(AST_Statement_t *statement)
@@ -445,6 +595,7 @@ void AST_FreeStatement(AST_Statement_t *statement)
     if (statement->expression) {
         AST_FreeExpression(statement->expression);
     }
+    free(statement);
 }
 
 void AST_FreeProgram(AST_Program_t *program)
@@ -454,6 +605,8 @@ void AST_FreeProgram(AST_Program_t *program)
     for (i = 0; i < program->nstatements; i++) {
         AST_FreeStatement(program->statements[i]);
     }
+    free(program->statements);
+    free(program);
 }
 
 //------------------------------------------------------------------------------

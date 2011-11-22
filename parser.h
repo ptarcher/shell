@@ -23,7 +23,16 @@ typedef enum {
     TOKEN_DOLLAR,
     TOKEN_STRING,
 
-    TOKEN_AND = 20,
+    TOKEN_IF     = 20,
+    TOKEN_THEN,
+    TOKEN_ELSE,
+    TOKEN_FI,
+    TOKEN_FOR,
+    TOKEN_WHILE,
+    TOKEN_DO,
+    TOKEN_DONE,
+
+    TOKEN_AND = 30,
     TOKEN_ANDAND,
     TOKEN_OROR,
     TOKEN_LEFTARROW,
@@ -61,6 +70,8 @@ typedef struct {
 } Parser_t;
 
 /* Abstract Syntax Tree */
+struct AST_Statement;
+
 typedef struct {
     Token_t *file;
 } AST_Redirect_t;
@@ -90,8 +101,14 @@ typedef struct AST_Expression {
 } AST_Expression_t;
 
 typedef struct {
-    AST_Assignment_t *assignment;
-    AST_Expression_t *expression;
+    AST_Expression_t     *expression;
+    struct AST_Statement *elsestatement;
+} AST_IfStatement_t;;
+
+typedef struct AST_Statement {
+    AST_Assignment_t  *assignment;
+    AST_Expression_t  *expression;
+    AST_IfStatement_t *ifstatement;
 } AST_Statement_t;
 
 typedef struct {
