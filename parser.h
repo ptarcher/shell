@@ -28,6 +28,7 @@ typedef enum {
     TOKEN_ELSE,
     TOKEN_FI,
     TOKEN_FOR,
+    TOKEN_IN,
     TOKEN_WHILE,
     TOKEN_DO,
     TOKEN_DONE,
@@ -39,6 +40,7 @@ typedef enum {
     TOKEN_RIGHTARROW,
     TOKEN_EQUALS,
     TOKEN_SEMICOLON,
+    TOKEN_TICK,
 
     TOKEN_ERROR = 100,
 } Token_Type_t;
@@ -51,7 +53,7 @@ typedef struct {
     int colnum;
 } Token_t;
 
-typedef struct {
+typedef struct Parser {
     int linenum;
     int colnum;
 
@@ -64,6 +66,7 @@ typedef struct {
     int  token_startcol;
     char token[1024];
     int  token_idx;
+    int  (*getchar)(struct Parser *parser, int timeout);
 
     /* Parser Context */
     Token_t *t;
@@ -71,6 +74,7 @@ typedef struct {
 
 /* Abstract Syntax Tree */
 struct AST_Statement;
+struct AST_Program;
 
 typedef struct {
     Token_t *file;
@@ -105,13 +109,21 @@ typedef struct {
     struct AST_Statement *elsestatement;
 } AST_IfStatement_t;;
 
+typedef struct {
+    Token_t              *var;
+    struct AST_Statement *statement;
+    struct AST_Program   *program;
+} AST_ForStatement_t;
+
 typedef struct AST_Statement {
-    AST_Assignment_t  *assignment;
-    AST_Expression_t  *expression;
-    AST_IfStatement_t *ifstatement;
+    AST_Assignment_t     *assignment;
+    AST_Expression_t     *expression;
+    AST_IfStatement_t    *ifstatement;
+    AST_ForStatement_t   *forstatement;
+    struct AST_Statement *tickstatement;
 } AST_Statement_t;
 
-typedef struct {
+typedef struct AST_Program {
     AST_Statement_t  **statements;
     int nstatements;
 } AST_Program_t;
