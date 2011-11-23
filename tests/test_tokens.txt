@@ -18,3 +18,13 @@ here is three
 ./cmd arg1 arg2 &
 ./cmd arg1 arg2 > file_out < file_in
 ./cmd arg1 arg2 > file_out < file_in && cmd2
+for
+in
+while
+do
+done
+if
+then
+else
+fi
+'
