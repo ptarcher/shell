@@ -32,6 +32,8 @@ int my_setenv(char *name, char *value, int overwrite);
 char *my_getenv(char *name);
 int Shell_RunCommand(int argc, char *argv[], bool background);
 
+AST_Statement_t *AST_ParseStatement(Parser_t *parser);
+
 void AST_FreeAssignment(AST_Assignment_t *assignment);
 void AST_FreeRedirect(AST_Redirect_t *redirect);
 void AST_FreeCommand(AST_Command_t *command);
@@ -317,6 +319,7 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
     }
 
     if ((statement->ifstatement = calloc(1, sizeof(*(statement->ifstatement)))) == NULL) {
+        /* TODO: Fail */
         return NULL;
     }
 
@@ -340,19 +343,103 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
     return statement;
 
 if_fail:
+    /* TODO: Fail */
 
     return NULL;
 }
 
 AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
 {
+    AST_Statement_t *statement = NULL;
+
     printf("Found FOR statement\n");
+
+    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+        goto for_fail;
+    }
+    if ((statement->forstatement = calloc(1, sizeof(*(statement->forstatement)))) == NULL) {
+        goto for_fail;
+    }
+
+    Scanner_TokenConsume(parser);
+    statement->forstatement->var = parser->t;
+    Scanner_TokenAccept(parser);
+
+    if (parser->t->type != TOKEN_IN) {
+        fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_IN, parser->t->type);
+        goto for_fail;
+    }
+    Scanner_TokenConsume(parser);
+
+    statement->forstatement->statement = AST_ParseStatement(parser);
+
+    if (parser->t->type != TOKEN_DO) {
+        fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DO, parser->t->type);
+        goto for_fail;
+    }
+
+    statement->forstatement->statement = AST_ParseStatement(parser);
+
+    if (parser->t->type != TOKEN_DONE) {
+        fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DONE, parser->t->type);
+        goto for_fail;
+    }
+
+for_fail:
+    fprintf(stderr, "ERROR: Parsing %s\n", __func__);
+    if (statement) {
+        AST_FreeStatement(statement);
+    }
+
+    return statement;
+}
+
+AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
+{
+    AST_Statement_t *statement = NULL;
+
+    printf("Found TICK statement\n");
+
+    Scanner_TokenConsume(parser);
+
+    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+        goto tick_fail;
+    }
+    if ((statement->tickstatement = calloc(1, sizeof(*(statement->tickstatement)))) == NULL) {
+        goto tick_fail;
+    }
+
+    statement->tickstatement = AST_ParseStatement(parser);
+
+    if (parser->t->type != TOKEN_TICK) {
+        goto tick_fail;
+    }
+
+    Scanner_TokenConsume(parser);
+
+    return statement;
+
+tick_fail:
+    fprintf(stderr, "ERROR: Parsing %s\n", __func__);
+    if (statement) {
+        AST_FreeStatement(statement);
+    }
     return NULL;
 }
 
 AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
 {
+    AST_Statement_t *statement = NULL;
+
     printf("Found WHILE statement\n");
+    goto while_fail;
+    return NULL;
+
+while_fail:
+    fprintf(stderr, "ERROR: Parsing %s\n", __func__);
+    if (statement) {
+        AST_FreeStatement(statement);
+    }
     return NULL;
 }
 
@@ -372,6 +459,10 @@ AST_Statement_t *AST_ParseStatement(Parser_t *parser)
 
         case TOKEN_FOR:
             statement = AST_ParseForStatement(parser);
+            break;
+
+        case TOKEN_TICK:
+            statement = AST_ParseTickStatement(parser);
             break;
 
         case TOKEN_WHILE:
