@@ -59,6 +59,7 @@ char *_DEBUG_TokenToString(int t)
         case TOKEN_ELSE:       return "TOKEN_ELSE";
         case TOKEN_FI:         return "TOKEN_FI";
         case TOKEN_FOR:        return "TOKEN_FOR";
+        case TOKEN_IN:         return "TOKEN_IN";
         case TOKEN_WHILE:      return "TOKEN_WHILE";
         case TOKEN_DO:         return "TOKEN_DO";
         case TOKEN_DONE:       return "TOKEN_DONE";
@@ -70,6 +71,7 @@ char *_DEBUG_TokenToString(int t)
         case TOKEN_RIGHTARROW: return "TOKEN_RIGHTARROW";
         case TOKEN_EQUALS:     return "TOKEN_EQUALS";
         case TOKEN_SEMICOLON:  return "TOKEN_SEMICOLON";
+        case TOKEN_TICK:       return "TOKEN_TICK";
 
         case TOKEN_ERROR:      return "TOKEN_ERROR";
         default:               return "TOKEN_UNKNOWN";
@@ -105,7 +107,14 @@ int iscontrolchar(char c)
 
 char Scanner_Inspect(Parser_t *parser, int n)
 {
-    return parser->LineChar[n];
+    if (n >= strlen(parser->line)) {
+        int i;
+        for (i = 1; i <= n; i++) {
+            parser->line[i] = parser->getchar(parser, 1000);
+        }
+    } 
+
+    return parser->line[n];
 }
 
 void Scanner_TokenAppend(Parser_t *parser, char c)
@@ -121,7 +130,14 @@ char Scanner_Accept(Parser_t *parser, bool store_char)
     }
 
     /* Grab the next one */
-    parser->c = *(++parser->LineChar);
+    if (strlen(parser->line) == 0) {
+        parser->line[0] = parser->getchar(parser, 1000);
+    }
+
+    /* Move all the characters up one */
+    parser->c = parser->line[0];
+    memmove(parser->line, &(parser->line[1]), sizeof(parser->line)-1);
+    parser->line[sizeof(parser->line)-1] = 0;
 
     /* Update line and column numbers */
     if (((parser->c == '\r') && Scanner_Inspect(parser, 1) != '\n') || 
@@ -188,6 +204,7 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
         {"else",    TOKEN_ELSE},
         {"fi",      TOKEN_FI},
         {"for",     TOKEN_FOR},
+        {"in",      TOKEN_IN},
         {"while",   TOKEN_WHILE},
         {"do",      TOKEN_DO},
         {"done",    TOKEN_DONE},
@@ -319,6 +336,11 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             } while (parser->c != 0);
 
             type = TOKEN_STRING;
+            break;
+
+        case '`':
+            Scanner_Accept(parser, STORE_CHAR);
+            type = TOKEN_TICK;
             break;
 
         case '\'':

@@ -198,8 +198,7 @@ void Shell_ParseInput(Parser_t *parser)
     AST_Program_t *program;
 
     /* Reset the line */
-    parser->LineChar =  parser->line;
-    parser->c        = *parser->LineChar;
+    parser->c        = parser->getchar(parser, 1000);
 
     /* Setup the first token */
     if ((parser->t = Scanner_TokenNext(parser)) == NULL) {
@@ -231,9 +230,15 @@ void Shell_ParseLine(void)
     }
 }
 
+FILE *f;
+int Shell_FileGetChar(struct Parser *parser, int timeout)
+{
+    (void) timeout;
+    return fgetc(f);
+}
+
 void Shell_ParseFile(char *file) 
 {
-    FILE *f;
     Parser_t parser;
 
     f = fopen(file, "r");
@@ -243,11 +248,12 @@ void Shell_ParseFile(char *file)
 
     parser.linenum  = 1;
     parser.colnum   = 1;
+    parser.getchar  = Shell_FileGetChar;
 
-    while (fgets(parser.line, sizeof(parser.line), f)) {
-        DTRACE("line = %s\n", parser.line);
+    //while (fgets(parser.line, sizeof(parser.line), f)) {
+    //    DTRACE("line = %s\n", parser.line);
         Shell_ParseInput(&parser);
-    }
+    //}
 
     fclose(f);
 }
