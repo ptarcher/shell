@@ -119,11 +119,11 @@ char *my_getenv(char *name)
 int Command_Test(int argc, char *argv[])
 {
     if (argc > 3 && (strcmp(argv[1], "-n") == 0)) {
-        if (strcmp(argv[2], "") == 0) {
-            return 1;
-        } else {
-            return 0;
-        }
+        /* Check for empty string */
+        return (argv[2][0] != 0);
+    } else if (argc == 2) {
+        /* Check for empty string */
+        return (argv[1][0] != 0);
     }
 
     return 0;
