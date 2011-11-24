@@ -315,12 +315,11 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
     AST_Statement_t   *statement  = NULL;
 
     if ((statement = calloc(1, sizeof(*statement))) == NULL) {
-        return NULL;
+        goto if_fail;
     }
 
     if ((statement->ifstatement = calloc(1, sizeof(*(statement->ifstatement)))) == NULL) {
-        /* TODO: Fail */
-        return NULL;
+        goto if_fail;
     }
 
     Scanner_TokenConsume(parser);
@@ -330,9 +329,11 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
         goto if_fail;
     }
     Scanner_TokenConsume(parser);
+    statement->ifstatement->statement = AST_ParseStatement(parser);
 
     if (parser->t->type == TOKEN_ELSE) {
-        statement->ifstatement->elsestatement = AST_ParseIfStatement(parser);
+        Scanner_TokenConsume(parser);
+        statement->ifstatement->elsestatement = AST_ParseStatement(parser);
     }
 
     if (parser->t->type != TOKEN_FI) {
@@ -344,6 +345,7 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
 
 if_fail:
     /* TODO: Fail */
+    fprintf(stderr, "ERROR: Parsing %s\n", __func__);
 
     return NULL;
 }
@@ -352,7 +354,7 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
 {
     AST_Statement_t *statement = NULL;
 
-    printf("Found FOR statement\n");
+    printf("%s: Start\n", __func__);
 
     if ((statement = calloc(1, sizeof(*statement))) == NULL) {
         goto for_fail;
@@ -377,6 +379,7 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
         fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DO, parser->t->type);
         goto for_fail;
     }
+    Scanner_TokenConsume(parser);
 
     statement->forstatement->statement = AST_ParseStatement(parser);
 
@@ -384,6 +387,10 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
         fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DONE, parser->t->type);
         goto for_fail;
     }
+
+    printf("%s: Done\n", __func__);
+
+    return statement;
 
 for_fail:
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
@@ -394,12 +401,51 @@ for_fail:
     return statement;
 }
 
+char *tick_token;
+char *tick_ch;
+
+int AST_ParseTickGetChar(struct Parser *parser, int timeout)
+{
+    (void) timeout;
+    int c;
+    
+    c = *tick_ch++;
+    if (c == '\0') {
+        return EOF;
+    }
+
+    return c;
+}
+
 AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
 {
-    AST_Statement_t *statement = NULL;
+    Parser_t tick_parser;
+    AST_Statement_t *statement    = NULL;
+    AST_Program_t   *tick_program = NULL;
 
-    printf("Found TICK statement\n");
+    printf("%s: Start\n", __func__);
 
+    /* Setup a new program to consume the text between the ticks */
+    memset(&tick_parser, 0, sizeof(tick_parser));
+    tick_parser.linenum = parser->linenum;
+    tick_parser.colnum  = parser->colnum;
+    tick_token          = parser->t->str;
+    tick_ch             = tick_token;
+    tick_parser.getchar = AST_ParseTickGetChar;
+
+    /* Setup first char, and token */
+    tick_parser.c       = tick_parser.getchar(&tick_parser, 1000);
+    tick_parser.t       = Scanner_TokenNext(&tick_parser);
+
+    /* Run the tick program */
+    if ((tick_program = AST_ParseProgram(&tick_parser)) == NULL) {
+        goto tick_fail;
+    }
+
+    AST_ProcessProgram(tick_program);
+    AST_FreeProgram(tick_program);
+
+    /* Consume the whole tick program */
     Scanner_TokenConsume(parser);
 
     if ((statement = calloc(1, sizeof(*statement))) == NULL) {
@@ -416,6 +462,8 @@ AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
     }
 
     Scanner_TokenConsume(parser);
+
+    printf("%s: Done\n", __func__);
 
     return statement;
 
