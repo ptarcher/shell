@@ -34,6 +34,8 @@ int Shell_RunCommand(int argc, char *argv[], bool background);
 
 AST_Statement_t *AST_ParseStatement(Parser_t *parser);
 
+void AST_ProcessStatement(AST_Statement_t *statement);
+
 void AST_FreeAssignment(AST_Assignment_t *assignment);
 void AST_FreeRedirect(AST_Redirect_t *redirect);
 void AST_FreeCommand(AST_Command_t *command);
@@ -393,6 +395,7 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
     return statement;
 
 for_fail:
+    /* TODO: */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
     if (statement) {
         AST_FreeStatement(statement);
@@ -468,6 +471,7 @@ AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
     return statement;
 
 tick_fail:
+    /* TODO: */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
     if (statement) {
         AST_FreeStatement(statement);
@@ -628,21 +632,47 @@ process_command_fail:
     return -ENOMEM;
 }
 
-void AST_ProcessExpression(AST_Expression_t *expression)
+int AST_ProcessExpression(AST_Expression_t *expression)
 {
     int r;
 
+    /* TODO: Convert to a while loop */
     r = AST_ProcessCommand(expression->command);
 
     if (expression->op) {
         if ((expression->op->type == TOKEN_ANDAND && (r == 0)) ||
             (expression->op->type == TOKEN_OROR   && (r != 0)) ||
             (expression->op->type == TOKEN_SEMICOLON)) {
-            AST_ProcessExpression(expression->expression);
+            r = AST_ProcessExpression(expression->expression);
         } else {
             DTRACE("Ignoring expression due to truth condition\n");
         }
     }
+
+    return r;
+}
+
+void AST_ProcessIfStatement(AST_IfStatement_t *ifstatement)
+{
+    int r;
+
+    r = AST_ProcessExpression(ifstatement->expression);
+
+    if (r) {
+        AST_ProcessStatement(ifstatement->statement);
+    } else {
+        AST_ProcessStatement(ifstatement->elsestatement);
+    }
+}
+
+void AST_ProcessForStatement(AST_ForStatement_t *forstatement)
+{
+    /* TODO: */
+}
+
+void AST_ProcessTickStatement(AST_Statement_t *tickstatement)
+{
+    /* TODO: */
 }
 
 void AST_ProcessStatement(AST_Statement_t *statement)
@@ -652,6 +682,15 @@ void AST_ProcessStatement(AST_Statement_t *statement)
     } 
     if (statement->expression) {
         AST_ProcessExpression(statement->expression);
+    }
+    if (statement->ifstatement) {
+        AST_ProcessIfStatement(statement->ifstatement);
+    }
+    if (statement->forstatement) {
+        AST_ProcessForStatement(statement->forstatement);
+    }
+    if (statement->tickstatement) {
+        AST_ProcessTickStatement(statement->tickstatement);
     }
 }
 
@@ -726,6 +765,30 @@ void AST_FreeExpression(AST_Expression_t *expression)
     }
 }
 
+void AST_FreeIfStatement(AST_IfStatement_t *ifstatement)
+{
+    if (ifstatement->expression) {
+        AST_FreeExpression(ifstatement->expression);
+    }
+    if (ifstatement->statement) {
+        AST_FreeStatement(ifstatement->statement);
+    }
+    if (ifstatement->elsestatement) {
+        AST_FreeStatement(ifstatement->elsestatement);
+    }
+    free(ifstatement);
+}
+
+void AST_FreeForStatement(AST_ForStatement_t *forstatement)
+{
+    free(forstatement);
+}
+
+void AST_FreeTickStatement(AST_Statement_t *tickstatement)
+{
+    free(tickstatement);
+}
+
 void AST_FreeStatement(AST_Statement_t *statement)
 {
     if (statement->assignment) {
@@ -733,6 +796,15 @@ void AST_FreeStatement(AST_Statement_t *statement)
     } 
     if (statement->expression) {
         AST_FreeExpression(statement->expression);
+    }
+    if (statement->ifstatement) {
+        AST_FreeIfStatement(statement->ifstatement);
+    }
+    if (statement->forstatement) {
+        AST_FreeForStatement(statement->forstatement);
+    }
+    if (statement->tickstatement) {
+        AST_FreeTickStatement(statement->tickstatement);
     }
     free(statement);
 }
