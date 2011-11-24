@@ -422,9 +422,9 @@ int AST_ParseTickGetChar(struct Parser *parser, int timeout)
 
 AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
 {
-    Parser_t tick_parser;
     AST_Statement_t *statement    = NULL;
     AST_Program_t   *tick_program = NULL;
+    Parser_t         tick_parser;
 
     printf("%s: Start\n", __func__);
 
@@ -441,6 +441,7 @@ AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
     tick_parser.t       = Scanner_TokenNext(&tick_parser);
 
     /* Run the tick program */
+    /* TODO: Set the print path so we can absorb the output */
     if ((tick_program = AST_ParseProgram(&tick_parser)) == NULL) {
         goto tick_fail;
     }
@@ -449,21 +450,6 @@ AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
     AST_FreeProgram(tick_program);
 
     /* Consume the whole tick program */
-    Scanner_TokenConsume(parser);
-
-    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
-        goto tick_fail;
-    }
-    if ((statement->tickstatement = calloc(1, sizeof(*(statement->tickstatement)))) == NULL) {
-        goto tick_fail;
-    }
-
-    statement->tickstatement = AST_ParseStatement(parser);
-
-    if (parser->t->type != TOKEN_TICK) {
-        goto tick_fail;
-    }
-
     Scanner_TokenConsume(parser);
 
     printf("%s: Done\n", __func__);
@@ -634,18 +620,20 @@ process_command_fail:
 
 int AST_ProcessExpression(AST_Expression_t *expression)
 {
-    int r;
+    int r = 0;
 
-    /* TODO: Convert to a while loop */
-    r = AST_ProcessCommand(expression->command);
+    if (expression) {
+        /* TODO: Convert to a while loop */
+        r = AST_ProcessCommand(expression->command);
 
-    if (expression->op) {
-        if ((expression->op->type == TOKEN_ANDAND && (r == 0)) ||
-            (expression->op->type == TOKEN_OROR   && (r != 0)) ||
-            (expression->op->type == TOKEN_SEMICOLON)) {
-            r = AST_ProcessExpression(expression->expression);
-        } else {
-            DTRACE("Ignoring expression due to truth condition\n");
+        if (expression->op) {
+            if ((expression->op->type == TOKEN_ANDAND && (r == 0)) ||
+                (expression->op->type == TOKEN_OROR   && (r != 0)) ||
+                (expression->op->type == TOKEN_SEMICOLON)) {
+                r = AST_ProcessExpression(expression->expression);
+            } else {
+                DTRACE("Ignoring expression due to truth condition\n");
+            }
         }
     }
 
@@ -660,7 +648,7 @@ void AST_ProcessIfStatement(AST_IfStatement_t *ifstatement)
 
     if (r) {
         AST_ProcessStatement(ifstatement->statement);
-    } else {
+    } else if (ifstatement->elsestatement) {
         AST_ProcessStatement(ifstatement->elsestatement);
     }
 }
@@ -677,20 +665,22 @@ void AST_ProcessTickStatement(AST_Statement_t *tickstatement)
 
 void AST_ProcessStatement(AST_Statement_t *statement)
 {
-    if (statement->assignment) {
-        AST_ProcessAssignment(statement->assignment);
-    } 
-    if (statement->expression) {
-        AST_ProcessExpression(statement->expression);
-    }
-    if (statement->ifstatement) {
-        AST_ProcessIfStatement(statement->ifstatement);
-    }
-    if (statement->forstatement) {
-        AST_ProcessForStatement(statement->forstatement);
-    }
-    if (statement->tickstatement) {
-        AST_ProcessTickStatement(statement->tickstatement);
+    if (statement) {
+        if (statement->assignment) {
+            AST_ProcessAssignment(statement->assignment);
+        } 
+        if (statement->expression) {
+            AST_ProcessExpression(statement->expression);
+        }
+        if (statement->ifstatement) {
+            AST_ProcessIfStatement(statement->ifstatement);
+        }
+        if (statement->forstatement) {
+            AST_ProcessForStatement(statement->forstatement);
+        }
+        if (statement->tickstatement) {
+            AST_ProcessTickStatement(statement->tickstatement);
+        }
     }
 }
 
