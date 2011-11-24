@@ -290,6 +290,7 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             type = TOKEN_SEMICOLON;
             break;
 
+        case EOF:
         case 0:
             type = TOKEN_EOF;
             break;
@@ -339,7 +340,13 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             break;
 
         case '`':
-            Scanner_Accept(parser, STORE_CHAR);
+            Scanner_Accept(parser, IGNORE_CHAR);
+
+            while (parser->c != '`') {
+                Scanner_Accept(parser, STORE_CHAR);
+            }
+
+            Scanner_Accept(parser, IGNORE_CHAR);
             type = TOKEN_TICK;
             break;
 
