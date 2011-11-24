@@ -106,6 +106,7 @@ typedef struct AST_Expression {
 
 typedef struct {
     AST_Expression_t     *expression;
+    struct AST_Statement *statement;
     struct AST_Statement *elsestatement;
 } AST_IfStatement_t;;
 
