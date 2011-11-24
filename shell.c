@@ -240,6 +240,7 @@ int Shell_FileGetChar(struct Parser *parser, int timeout)
 void Shell_ParseFile(char *file) 
 {
     Parser_t parser;
+    memset(&parser, 0, sizeof(parser));
 
     f = fopen(file, "r");
     if (f == NULL) {
