@@ -171,6 +171,16 @@ int Command_False(int argc, char *argv[])
     return 1;
 }
 
+int Command_Sleep(int argc, char *argv[])
+{
+    if (argc != 2) {
+        return -EINVAL;
+    }
+
+    sleep(strtol(argv[1]));
+    
+    return 0;
+}
 
 int Shell_RunCommand(int argc, char *argv[], bool background)
 {
@@ -194,6 +204,8 @@ int Shell_RunCommand(int argc, char *argv[], bool background)
         r = Command_True(argc, argv);
     } else if (strcmp(argv[0], "false") == 0) {
         r = Command_False(argc, argv);
+    } else if (strcmp(argv[0], "sleep") == 0) {
+        r = Command_Sleep(argc, argv);
     } else {
         r = 0;
     }
