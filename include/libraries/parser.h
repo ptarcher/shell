@@ -116,11 +116,17 @@ typedef struct {
     struct AST_Program   *program;
 } AST_ForStatement_t;
 
+typedef struct {
+    struct AST_Statement *statement;
+    struct AST_Statement *test;
+} AST_WhileStatement_t;
+
 typedef struct AST_Statement {
     AST_Assignment_t     *assignment;
     AST_Expression_t     *expression;
     AST_IfStatement_t    *ifstatement;
     AST_ForStatement_t   *forstatement;
+    AST_WhileStatement_t *whilestatement;
     struct AST_Statement *tickstatement;
 } AST_Statement_t;
 
