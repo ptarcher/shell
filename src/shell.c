@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <unistd.h>
 
 #include <libraries/parser.h>
 
@@ -177,7 +178,7 @@ int Command_Sleep(int argc, char *argv[])
         return -EINVAL;
     }
 
-    sleep(strtol(argv[1]));
+    sleep(strtol(argv[1], NULL, 0));
     
     return 0;
 }
