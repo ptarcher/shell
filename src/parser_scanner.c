@@ -279,6 +279,10 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             type = TOKEN_DOLLAR;
             break;
         }
+        case '\n':
+            Scanner_Accept(parser, STORE_CHAR);
+            type = TOKEN_SEMICOLON;
+            break;
 
         case '=':
             Scanner_Accept(parser, STORE_CHAR);
