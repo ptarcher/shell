@@ -481,7 +481,7 @@ AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
 
     /* Parse the test */
     if (parser->t->type != TOKEN_DO) {
-        statement->whilestatement->test = AST_ParseStatement(parser);
+        statement->whilestatement->test = AST_ParseExpression(parser, NULL);
     }
 
     /* consume the do */
@@ -693,6 +693,19 @@ void AST_ProcessTickStatement(AST_Statement_t *tickstatement)
     /* TODO: */
 }
 
+void AST_ProcessWhileStatement(AST_WhileStatement_t *whilestatement)
+{
+    int r = 0;
+
+    if (whilestatement->test) {
+        r = AST_ProcessExpression(whilestatement->test);
+    }
+
+    if (r && whilestatement->statement) {
+        AST_ProcessStatement(whilestatement->statement);
+    }
+}
+
 void AST_ProcessStatement(AST_Statement_t *statement)
 {
     if (statement) {
@@ -710,6 +723,9 @@ void AST_ProcessStatement(AST_Statement_t *statement)
         }
         if (statement->tickstatement) {
             AST_ProcessTickStatement(statement->tickstatement);
+        }
+        if (statement->whilestatement) {
+            AST_ProcessWhileStatement(statement->whilestatement);
         }
     }
 }
@@ -812,7 +828,7 @@ void AST_FreeTickStatement(AST_Statement_t *tickstatement)
 void AST_FreeWhileStatement(AST_WhileStatement_t *whilestatement)
 {
     if (whilestatement->test) {
-        AST_FreeStatement(whilestatement->test);
+        AST_FreeExpression(whilestatement->test);
     }
     if (whilestatement->statement) {
         AST_FreeStatement(whilestatement->statement);
