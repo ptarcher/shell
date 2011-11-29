@@ -469,9 +469,39 @@ AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
 {
     AST_Statement_t *statement = NULL;
 
-    printf("Found WHILE statement\n");
-    goto while_fail;
-    return NULL;
+    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+        goto while_fail;
+    }
+    if ((statement->whilestatement = calloc(1, sizeof(*(statement->whilestatement)))) == NULL) {
+        goto while_fail;
+    }
+
+    /* Consume the while */
+    Scanner_TokenConsume(parser);
+
+    /* Parse the test */
+    if (parser->t->type != TOKEN_DO) {
+        statement->whilestatement->test = AST_ParseStatement(parser);
+    }
+
+    /* consume the do */
+    if (parser->t->type != TOKEN_DO) {
+        goto while_fail;
+    }
+    Scanner_TokenConsume(parser);
+
+    /* Parse the body */
+    if (parser->t->type != TOKEN_DONE) {
+        statement->whilestatement->statement = AST_ParseStatement(parser);
+    }
+
+    /* consume the done */
+    if (parser->t->type != TOKEN_DONE) {
+        goto while_fail;
+    }
+    Scanner_TokenConsume(parser);
+
+    return statement;
 
 while_fail:
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
@@ -779,6 +809,17 @@ void AST_FreeTickStatement(AST_Statement_t *tickstatement)
     free(tickstatement);
 }
 
+void AST_FreeWhileStatement(AST_WhileStatement_t *whilestatement)
+{
+    if (whilestatement->test) {
+        AST_FreeStatement(whilestatement->test);
+    }
+    if (whilestatement->statement) {
+        AST_FreeStatement(whilestatement->statement);
+    }
+    free(whilestatement);
+}
+
 void AST_FreeStatement(AST_Statement_t *statement)
 {
     if (statement->assignment) {
@@ -795,6 +836,9 @@ void AST_FreeStatement(AST_Statement_t *statement)
     }
     if (statement->tickstatement) {
         AST_FreeTickStatement(statement->tickstatement);
+    }
+    if (statement->whilestatement) {
+        AST_FreeWhileStatement(statement->whilestatement);
     }
     free(statement);
 }
