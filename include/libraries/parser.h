@@ -117,8 +117,8 @@ typedef struct {
 } AST_ForStatement_t;
 
 typedef struct {
+    AST_Expression_t     *test;
     struct AST_Statement *statement;
-    struct AST_Statement *test;
 } AST_WhileStatement_t;
 
 typedef struct AST_Statement {
