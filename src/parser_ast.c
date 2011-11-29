@@ -6,7 +6,7 @@
 //  Creation Date:  November, 2011
 //
 
-#define USE_DTRACE 0
+#define USE_DTRACE 1
 
 #include <stdio.h>
 #include <string.h>
@@ -112,6 +112,9 @@ void AST_PrintProgram(AST_Program_t *program)
 AST_Assignment_t *AST_ParseAssignment(Parser_t *parser, Token_t *var)
 {
     AST_Assignment_t *assignment;
+
+    DTRACE("%s: Start\n", __func__);
+
     if ((assignment = calloc(1, sizeof(*assignment))) == NULL) {
         goto assignment_fail;
     }
@@ -129,6 +132,8 @@ AST_Assignment_t *AST_ParseAssignment(Parser_t *parser, Token_t *var)
         goto assignment_fail;
     }
 
+    DTRACE("%s: End\n", __func__);
+
     return assignment;
 
 assignment_fail:
@@ -139,12 +144,18 @@ assignment_fail:
         }
         free(assignment);
     }
+
+    DTRACE("%s: Fail\n", __func__);
+
     return NULL;
 }
 
 AST_Redirect_t *AST_ParseRedirect(Parser_t *parser)
 {
     AST_Redirect_t *redirect = NULL;
+
+    DTRACE("%s: Start\n", __func__);
+
     if ((redirect = calloc(1, sizeof(*redirect))) == NULL) {
         goto redirect_fail;
     }
@@ -162,12 +173,20 @@ AST_Redirect_t *AST_ParseRedirect(Parser_t *parser)
         goto redirect_fail;
     }
 
+    DTRACE("%s: End\n", __func__);
+
     return redirect;
 
 redirect_fail:
     if (redirect) {
-        return redirect;
+        if (redirect->file) {
+            Scanner_TokenFree(redirect->file);
+        }
+        free(redirect);
     }
+
+    DTRACE("%s: Fail\n", __func__);
+
     return NULL;
 }
 
@@ -175,6 +194,8 @@ AST_Command_t *AST_ParseCommand(Parser_t *parser, Token_t *cmd)
 {
     AST_Command_t *command;
     Token_t **argv;
+
+    DTRACE("%s: Start\n", __func__);
 
     if ((command = calloc(1, sizeof(*command))) == NULL) {
         goto command_fail;
@@ -204,11 +225,14 @@ AST_Command_t *AST_ParseCommand(Parser_t *parser, Token_t *cmd)
             command->out = AST_ParseRedirect(parser);
         } else if (parser->t->type == TOKEN_AND)        {
             command->background = true;
+            Scanner_TokenConsume(parser);
             break;
         } else {
             break;
         }
     }
+
+    DTRACE("%s: End\n", __func__);
 
     return command;
 
@@ -234,6 +258,8 @@ command_fail:
         free(command);
         command = NULL;
     }
+
+    DTRACE("%s: Fail\n", __func__);
 
     return NULL;
 }
@@ -292,6 +318,8 @@ AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
     AST_Statement_t *statement;
     Token_t         *cmd_or_var;
 
+    DTRACE("%s: Start\n", __func__);
+
     if ((statement = calloc(1, sizeof(*statement))) == NULL) {
         return NULL;
     }
@@ -308,6 +336,8 @@ AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
     if (parser->t->type == TOKEN_SEMICOLON) {
         Scanner_TokenConsume(parser);
     }
+
+    DTRACE("%s: End\n", __func__);
 
     return statement;
 }
@@ -515,6 +545,8 @@ AST_Statement_t *AST_ParseStatement(Parser_t *parser)
 {
     AST_Statement_t *statement;
 
+    DTRACE("%s: Start\n", __func__);
+
     switch(parser->t->type) {
         case TOKEN_ID:
         case TOKEN_STRING:
@@ -542,6 +574,8 @@ AST_Statement_t *AST_ParseStatement(Parser_t *parser)
             break;
     }
 
+    DTRACE("%s: End\n", __func__);
+
     return statement;
 }
 
@@ -550,6 +584,8 @@ AST_Program_t *AST_ParseProgram(Parser_t *parser)
     AST_Program_t *program;
     AST_Statement_t *statement;
     AST_Statement_t **statements;
+
+    DTRACE("%s: Start\n", __func__);
 
     if ((program = calloc(1, sizeof(*program))) == NULL) {
         return NULL;
@@ -572,6 +608,8 @@ AST_Program_t *AST_ParseProgram(Parser_t *parser)
 
     Scanner_TokenFree(parser->t);
     parser->t = NULL;
+
+    DTRACE("%s: End\n", __func__);
 
     return program;
 
@@ -695,14 +733,16 @@ void AST_ProcessTickStatement(AST_Statement_t *tickstatement)
 
 void AST_ProcessWhileStatement(AST_WhileStatement_t *whilestatement)
 {
-    int r = 0;
+    int r;
 
-    if (whilestatement->test) {
-        r = AST_ProcessExpression(whilestatement->test);
-    }
+    printf("%s: Start\n", __func__);
 
-    if (r && whilestatement->statement) {
-        AST_ProcessStatement(whilestatement->statement);
+    while ((whilestatement->test == NULL) || 
+          ((r = AST_ProcessExpression(whilestatement->test)) == 0)) {
+
+        if (whilestatement->statement) {
+            AST_ProcessStatement(whilestatement->statement);
+        }
     }
 }
 
