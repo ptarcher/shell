@@ -161,6 +161,16 @@ int Command_Seq(int argc, char *argv[])
     return 0;
 }
 
+int Command_True(int argc, char *argv[])
+{
+    return 0;
+}
+
+int Command_False(int argc, char *argv[])
+{
+    return 1;
+}
+
 
 int Shell_RunCommand(int argc, char *argv[], bool background)
 {
@@ -180,6 +190,10 @@ int Shell_RunCommand(int argc, char *argv[], bool background)
         r = Command_Echo(argc, argv);
     } else if (strcmp(argv[0], "seq") == 0) {
         r = Command_Seq(argc, argv);
+    } else if (strcmp(argv[0], "true") == 0) {
+        r = Command_True(argc, argv);
+    } else if (strcmp(argv[0], "false") == 0) {
+        r = Command_False(argc, argv);
     } else {
         r = 0;
     }
