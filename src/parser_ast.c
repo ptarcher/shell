@@ -6,7 +6,7 @@
 //  Creation Date:  November, 2011
 //
 
-#define USE_DTRACE 1
+#define USE_DTRACE 0
 
 #include <stdio.h>
 #include <string.h>
@@ -32,16 +32,18 @@ int my_setenv(char *name, char *value, int overwrite);
 char *my_getenv(char *name);
 int Shell_RunCommand(int argc, char *argv[], bool background);
 
-AST_Statement_t *AST_ParseStatement(Parser_t *parser);
+AST_Pipeline_t *AST_ParsePipeline(Parser_t *parser);
+AST_List_t *AST_ParseList(Parser_t *parser);
+int AST_ProcessList(AST_List_t *pipeline_list);
 
-void AST_ProcessStatement(AST_Statement_t *statement);
+int AST_ProcessPipeline(AST_Pipeline_t *pipeline);
 
 void AST_FreeAssignment(AST_Assignment_t *assignment);
 void AST_FreeRedirect(AST_Redirect_t *redirect);
 void AST_FreeCommand(AST_Command_t *command);
 void AST_FreeExpression(AST_Expression_t *expression);
-void AST_FreeStatement(AST_Statement_t *statement);
-void AST_FreeProgram(AST_Program_t *program);
+void AST_FreePipeline(AST_Pipeline_t *pipeline);
+void AST_FreeList(AST_List_t *pipeline_list);
 
 /*****************************************************************************
  *                     G L O B A L     V A R I A B L E S
@@ -85,24 +87,24 @@ void AST_PrintExpression(AST_Expression_t *expression)
     }
 }
 
-void AST_PrintStatement(AST_Statement_t *statement)
+void AST_PrintPipeline(AST_Pipeline_t *pipeline)
 {
-    if (statement->assignment) {
-        AST_PrintAssignment(statement->assignment);
-    } else if (statement->expression) {
-        AST_PrintExpression(statement->expression);
+    if (pipeline->assignment) {
+        AST_PrintAssignment(pipeline->assignment);
+    } else if (pipeline->expression) {
+        AST_PrintExpression(pipeline->expression);
     }
 
     DTRACE("\n");
 }
 
-void AST_PrintProgram(AST_Program_t *program)
+void AST_PrintList(AST_List_t *pipeline_list)
 {
     int i;
 
     DTRACE("=======================================\n");
-    for (i = 0; i < program->nstatements; i++) {
-        AST_PrintStatement(program->statements[i]);
+    for (i = 0; i < pipeline_list->npipelines; i++) {
+        AST_PrintPipeline(pipeline_list->pipelines[i]);
     }
     DTRACE("=======================================\n");
 }
@@ -127,9 +129,6 @@ AST_Assignment_t *AST_ParseAssignment(Parser_t *parser, Token_t *var)
             parser->t->type == TOKEN_DOLLAR) {
         assignment->value = parser->t;
         Scanner_TokenAccept(parser);
-    } else {
-        /* ERROR */
-        goto assignment_fail;
     }
 
     DTRACE("%s: End\n", __func__);
@@ -294,6 +293,10 @@ AST_Expression_t *AST_ParseExpression(Parser_t *parser, Token_t *cmd)
         expression->expression = AST_ParseExpression(parser, NULL);
     }
 
+    while (parser->t->type == TOKEN_NEWLINE) {
+        Scanner_TokenConsume(parser);
+    }
+
     return expression;
 
 expression_fail:
@@ -313,14 +316,14 @@ expression_fail:
     return NULL;
 }
 
-AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
+AST_Pipeline_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
 {
-    AST_Statement_t *statement;
+    AST_Pipeline_t *pipeline;
     Token_t         *cmd_or_var;
 
     DTRACE("%s: Start\n", __func__);
 
-    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+    if ((pipeline = calloc(1, sizeof(*pipeline))) == NULL) {
         return NULL;
     }
 
@@ -328,9 +331,9 @@ AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
     Scanner_TokenAccept(parser);
 
     if (parser->t->type == TOKEN_EQUALS) {
-        statement->assignment = AST_ParseAssignment(parser, cmd_or_var);
+        pipeline->assignment = AST_ParseAssignment(parser, cmd_or_var);
     } else {
-        statement->expression = AST_ParseExpression(parser, cmd_or_var);
+        pipeline->expression = AST_ParseExpression(parser, cmd_or_var);
     }
 
     if (parser->t->type == TOKEN_SEMICOLON) {
@@ -339,33 +342,33 @@ AST_Statement_t *AST_ParseExpressionOrAssignment(Parser_t *parser)
 
     DTRACE("%s: End\n", __func__);
 
-    return statement;
+    return pipeline;
 }
 
-AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
+AST_Pipeline_t *AST_ParseIfPipeline(Parser_t *parser)
 {
-    AST_Statement_t   *statement  = NULL;
+    AST_Pipeline_t   *pipeline  = NULL;
 
-    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+    if ((pipeline = calloc(1, sizeof(*pipeline))) == NULL) {
         goto if_fail;
     }
 
-    if ((statement->ifstatement = calloc(1, sizeof(*(statement->ifstatement)))) == NULL) {
+    if ((pipeline->ifpipeline = calloc(1, sizeof(*(pipeline->ifpipeline)))) == NULL) {
         goto if_fail;
     }
 
     Scanner_TokenConsume(parser);
-    statement->ifstatement->expression = AST_ParseExpression(parser, NULL);
+    pipeline->ifpipeline->test = AST_ParseList(parser);
 
     if (parser->t->type != TOKEN_THEN) {
         goto if_fail;
     }
     Scanner_TokenConsume(parser);
-    statement->ifstatement->statement = AST_ParseStatement(parser);
+    pipeline->ifpipeline->pipeline = AST_ParsePipeline(parser);
 
     if (parser->t->type == TOKEN_ELSE) {
         Scanner_TokenConsume(parser);
-        statement->ifstatement->elsestatement = AST_ParseStatement(parser);
+        pipeline->ifpipeline->elsepipeline = AST_ParsePipeline(parser);
     }
 
     if (parser->t->type != TOKEN_FI) {
@@ -373,7 +376,7 @@ AST_Statement_t *AST_ParseIfStatement(Parser_t *parser)
     }
     Scanner_TokenConsume(parser);
 
-    return statement;
+    return pipeline;
 
 if_fail:
     /* TODO: Fail */
@@ -382,30 +385,69 @@ if_fail:
     return NULL;
 }
 
-AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
+AST_Words_t *AST_ParseWords(Parser_t *parser)
 {
-    AST_Statement_t *statement = NULL;
+    AST_Words_t *words = NULL;
+    Token_t **w;
 
-    printf("%s: Start\n", __func__);
+    if ((words = calloc(1, sizeof(*words))) == NULL) {
+        goto words_fail;
+    }
 
-    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+    while (parser->t->type  == TOKEN_STRING ||
+            parser->t->type == TOKEN_ID     ||
+            parser->t->type == TOKEN_DOLLAR) {
+        if ((w = realloc(words->words, sizeof(*words->words)*(words->nwords+1))) == NULL) {
+            goto words_fail;
+        }
+        words->words = w;
+        words->words[words->nwords++] = parser->t;
+        Scanner_TokenAccept(parser);
+    }
+
+    while (parser->t->type == TOKEN_NEWLINE) {
+        Scanner_TokenConsume(parser);
+    }
+
+    return words;
+
+words_fail:
+    if (words) {
+        if (words->words) {
+            int i;
+            for (i = 0; i < words->nwords; i++) {
+                Scanner_TokenFree(words->words[i]);
+            }
+            free(words->words);
+        }
+        free(words);
+    }
+
+    return NULL;
+}
+
+AST_Pipeline_t *AST_ParseForPipeline(Parser_t *parser)
+{
+    AST_Pipeline_t *pipeline = NULL;
+
+    DTRACE("%s: Start\n", __func__);
+
+    if ((pipeline = calloc(1, sizeof(*pipeline))) == NULL) {
         goto for_fail;
     }
-    if ((statement->forstatement = calloc(1, sizeof(*(statement->forstatement)))) == NULL) {
+    if ((pipeline->forpipeline = calloc(1, sizeof(*(pipeline->forpipeline)))) == NULL) {
         goto for_fail;
     }
 
     Scanner_TokenConsume(parser);
-    statement->forstatement->var = parser->t;
+    pipeline->forpipeline->var = parser->t;
     Scanner_TokenAccept(parser);
 
-    if (parser->t->type != TOKEN_IN) {
-        fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_IN, parser->t->type);
-        goto for_fail;
+    /* Support for loops without the IN token */
+    if (parser->t->type == TOKEN_ID && (strcmp(parser->t->str, "in") == 0)) {
+        Scanner_TokenConsume(parser);
+        pipeline->forpipeline->words = AST_ParseWords(parser);
     }
-    Scanner_TokenConsume(parser);
-
-    statement->forstatement->statement = AST_ParseStatement(parser);
 
     if (parser->t->type != TOKEN_DO) {
         fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DO, parser->t->type);
@@ -413,7 +455,7 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
     }
     Scanner_TokenConsume(parser);
 
-    statement->forstatement->statement = AST_ParseStatement(parser);
+    pipeline->forpipeline->list = AST_ParseList(parser);
 
     if (parser->t->type != TOKEN_DONE) {
         fprintf(stderr, "Found wrong token expected %d got %d\n", TOKEN_DONE, parser->t->type);
@@ -422,16 +464,16 @@ AST_Statement_t *AST_ParseForStatement(Parser_t *parser)
 
     printf("%s: Done\n", __func__);
 
-    return statement;
+    return pipeline;
 
 for_fail:
     /* TODO: */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
-    if (statement) {
-        AST_FreeStatement(statement);
+    if (pipeline) {
+        AST_FreePipeline(pipeline);
     }
 
-    return statement;
+    return pipeline;
 }
 
 char *tick_token;
@@ -450,15 +492,15 @@ int AST_ParseTickGetChar(struct Parser *parser, int timeout)
     return c;
 }
 
-AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
+AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
 {
-    AST_Statement_t *statement    = NULL;
-    AST_Program_t   *tick_program = NULL;
+    AST_Pipeline_t *pipeline    = NULL;
+    AST_List_t   *tick_pipeline_list = NULL;
     Parser_t         tick_parser;
 
     printf("%s: Start\n", __func__);
 
-    /* Setup a new program to consume the text between the ticks */
+    /* Setup a new pipeline_list to consume the text between the ticks */
     memset(&tick_parser, 0, sizeof(tick_parser));
     tick_parser.linenum = parser->linenum;
     tick_parser.colnum  = parser->colnum;
@@ -470,39 +512,39 @@ AST_Statement_t *AST_ParseTickStatement(Parser_t *parser)
     tick_parser.c       = tick_parser.getchar(&tick_parser, 1000);
     tick_parser.t       = Scanner_TokenNext(&tick_parser);
 
-    /* Run the tick program */
+    /* Run the tick pipeline_list */
     /* TODO: Set the print path so we can absorb the output */
-    if ((tick_program = AST_ParseProgram(&tick_parser)) == NULL) {
+    if ((tick_pipeline_list = AST_ParseList(&tick_parser)) == NULL) {
         goto tick_fail;
     }
 
-    AST_ProcessProgram(tick_program);
-    AST_FreeProgram(tick_program);
+    AST_ProcessProgram(tick_pipeline_list);
+    AST_FreeProgram(tick_pipeline_list);
 
-    /* Consume the whole tick program */
+    /* Consume the whole tick pipeline_list */
     Scanner_TokenConsume(parser);
 
     printf("%s: Done\n", __func__);
 
-    return statement;
+    return pipeline;
 
 tick_fail:
     /* TODO: */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
-    if (statement) {
-        AST_FreeStatement(statement);
+    if (pipeline) {
+        AST_FreePipeline(pipeline);
     }
     return NULL;
 }
 
-AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
+AST_Pipeline_t *AST_ParseWhilePipeline(Parser_t *parser)
 {
-    AST_Statement_t *statement = NULL;
+    AST_Pipeline_t *pipeline = NULL;
 
-    if ((statement = calloc(1, sizeof(*statement))) == NULL) {
+    if ((pipeline = calloc(1, sizeof(*pipeline))) == NULL) {
         goto while_fail;
     }
-    if ((statement->whilestatement = calloc(1, sizeof(*(statement->whilestatement)))) == NULL) {
+    if ((pipeline->whilepipeline = calloc(1, sizeof(*(pipeline->whilepipeline)))) == NULL) {
         goto while_fail;
     }
 
@@ -511,18 +553,19 @@ AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
 
     /* Parse the test */
     if (parser->t->type != TOKEN_DO) {
-        statement->whilestatement->test = AST_ParseExpression(parser, NULL);
+        pipeline->whilepipeline->test = AST_ParseList(parser);
     }
 
     /* consume the do */
     if (parser->t->type != TOKEN_DO) {
+        fprintf(stderr, "Token Type = %d\n", parser->t->type);
         goto while_fail;
     }
     Scanner_TokenConsume(parser);
 
     /* Parse the body */
     if (parser->t->type != TOKEN_DONE) {
-        statement->whilestatement->statement = AST_ParseStatement(parser);
+        pipeline->whilepipeline->list = AST_ParseList(parser);
     }
 
     /* consume the done */
@@ -531,100 +574,116 @@ AST_Statement_t *AST_ParseWhileStatement(Parser_t *parser)
     }
     Scanner_TokenConsume(parser);
 
-    return statement;
+    return pipeline;
 
 while_fail:
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
-    if (statement) {
-        AST_FreeStatement(statement);
+    if (pipeline) {
+        AST_FreePipeline(pipeline);
     }
     return NULL;
 }
 
-AST_Statement_t *AST_ParseStatement(Parser_t *parser)
+AST_Pipeline_t *AST_ParsePipeline(Parser_t *parser)
 {
-    AST_Statement_t *statement;
+    AST_Pipeline_t *pipeline;
 
     DTRACE("%s: Start\n", __func__);
+
+    while (parser->t->type == TOKEN_NEWLINE) {
+        Scanner_TokenConsume(parser);
+    }
 
     switch(parser->t->type) {
         case TOKEN_ID:
         case TOKEN_STRING:
-            statement = AST_ParseExpressionOrAssignment(parser);
+            pipeline = AST_ParseExpressionOrAssignment(parser);
             break;
 
         case TOKEN_IF:
-            statement = AST_ParseIfStatement(parser);
+            pipeline = AST_ParseIfPipeline(parser);
             break;
 
         case TOKEN_FOR:
-            statement = AST_ParseForStatement(parser);
+            pipeline = AST_ParseForPipeline(parser);
             break;
 
         case TOKEN_TICK:
-            statement = AST_ParseTickStatement(parser);
+            pipeline = AST_ParseTickPipeline(parser);
             break;
 
         case TOKEN_WHILE:
-            statement = AST_ParseWhileStatement(parser);
+            pipeline = AST_ParseWhilePipeline(parser);
             break;
 
         default:
-            statement = NULL;
+            pipeline = NULL;
             break;
+    }
+
+    while (parser->t->type == TOKEN_NEWLINE) {
+        Scanner_TokenConsume(parser);
     }
 
     DTRACE("%s: End\n", __func__);
 
-    return statement;
+    return pipeline;
 }
 
-AST_Program_t *AST_ParseProgram(Parser_t *parser)
+AST_List_t *AST_ParseList(Parser_t *parser)
 {
-    AST_Program_t *program;
-    AST_Statement_t *statement;
-    AST_Statement_t **statements;
+    AST_List_t *pipeline_list;
+    AST_Pipeline_t *pipeline;
+    AST_Pipeline_t **pipelines;
 
     DTRACE("%s: Start\n", __func__);
 
-    if ((program = calloc(1, sizeof(*program))) == NULL) {
+    if ((pipeline_list = calloc(1, sizeof(*pipeline_list))) == NULL) {
         return NULL;
     }
 
     while (parser->t->type != TOKEN_EOF) {
-        if ((statement = AST_ParseStatement(parser))) {
-            statements = realloc(program->statements, 
-                    sizeof(*(program->statements))*(program->nstatements+1));
-            if (statements == NULL) {
-                goto program_fail;
+        if ((pipeline = AST_ParsePipeline(parser))) {
+            pipelines = realloc(pipeline_list->pipelines, 
+                    sizeof(*(pipeline_list->pipelines))*(pipeline_list->npipelines+1));
+            if (pipelines == NULL) {
+                goto pipeline_list_fail;
             } else {
-                program->statements = statements;
-                program->statements[program->nstatements++] = statement;
+                pipeline_list->pipelines = pipelines;
+                pipeline_list->pipelines[pipeline_list->npipelines++] = pipeline;
             }
         } else {
             break;
         }
     }
 
+    DTRACE("%s: End\n", __func__);
+
+    return pipeline_list;
+
+pipeline_list_fail:
+    if (pipeline_list) {
+        if (pipeline_list->pipelines) {
+            free(pipeline_list->pipelines);
+        }
+        free(pipeline_list);
+    }
+
+    return NULL;
+}
+
+AST_List_t *AST_ParseProgram(Parser_t *parser)
+{
+    AST_List_t *pipeline_list;
+
+    pipeline_list = AST_ParseList(parser);
+
     Scanner_TokenFree(parser->t);
     parser->t = NULL;
 
     DTRACE("%s: End\n", __func__);
 
-    return program;
-
-program_fail:
-    if (program) {
-        if (program->statements) {
-            free(program->statements);
-        }
-        free(program);
-    }
-
-    Scanner_TokenFree(parser->t);
-    parser->t = NULL;
-
-    return NULL;
+    return pipeline_list;
 }
 
 void AST_ParseCleanup(Parser_t *parser)
@@ -632,9 +691,17 @@ void AST_ParseCleanup(Parser_t *parser)
 }
 
 /****************************************************************************/
-void AST_ProcessAssignment(AST_Assignment_t *assignment)
+int AST_ProcessAssignment(AST_Assignment_t *assignment)
 {
-    my_setenv(assignment->var->str, assignment->value->str, true);
+    char *value;
+    if (assignment->value) {
+        value = assignment->value->str;
+    } else {
+        value = "";
+    }
+    my_setenv(assignment->var->str, value, true);
+
+    return 0;
 }
 
 int AST_ProcessCommand(AST_Command_t *command) 
@@ -708,75 +775,101 @@ int AST_ProcessExpression(AST_Expression_t *expression)
     return r;
 }
 
-void AST_ProcessIfStatement(AST_IfStatement_t *ifstatement)
+int AST_ProcessIfPipeline(AST_IfPipeline_t *ifpipeline)
 {
-    int r;
+    int r = 0;
 
-    r = AST_ProcessExpression(ifstatement->expression);
+    if (ifpipeline->test) {
+        r = AST_ProcessList(ifpipeline->test);
+    }
 
     if (r) {
-        AST_ProcessStatement(ifstatement->statement);
-    } else if (ifstatement->elsestatement) {
-        AST_ProcessStatement(ifstatement->elsestatement);
+        r = AST_ProcessPipeline(ifpipeline->pipeline);
+    } else if (ifpipeline->elsepipeline) {
+        r = AST_ProcessPipeline(ifpipeline->elsepipeline);
     }
+
+    return r;
 }
 
-void AST_ProcessForStatement(AST_ForStatement_t *forstatement)
+int AST_ProcessForPipeline(AST_ForPipeline_t *forpipeline)
+{
+    int i;
+    int r = 0;
+
+    if (forpipeline->words) {
+        for (i = 0; i < forpipeline->words->nwords; i++) {
+            my_setenv(forpipeline->var->str, forpipeline->words->words[i]->str, true);
+            r = AST_ProcessList(forpipeline->list);
+        }
+    } else {
+        /* TODO */
+    }
+
+    return r;
+}
+
+int AST_ProcessTickPipeline(AST_Pipeline_t *tickpipeline)
 {
     /* TODO: */
+    return 0;
 }
 
-void AST_ProcessTickStatement(AST_Statement_t *tickstatement)
-{
-    /* TODO: */
-}
-
-void AST_ProcessWhileStatement(AST_WhileStatement_t *whilestatement)
+int AST_ProcessWhilePipeline(AST_WhilePipeline_t *whilepipeline)
 {
     int r;
 
-    printf("%s: Start\n", __func__);
+    //printf("%s: Start\n", __func__);
 
-    while ((whilestatement->test == NULL) || 
-          ((r = AST_ProcessExpression(whilestatement->test)) == 0)) {
+    while ((whilepipeline->test == NULL) || 
+          ((r = AST_ProcessList(whilepipeline->test)) == 0)) {
 
-        if (whilestatement->statement) {
-            AST_ProcessStatement(whilestatement->statement);
+        if (whilepipeline->list) {
+            AST_ProcessList(whilepipeline->list);
         }
     }
+
+    return 0;
 }
 
-void AST_ProcessStatement(AST_Statement_t *statement)
+int AST_ProcessPipeline(AST_Pipeline_t *pipeline)
 {
-    if (statement) {
-        if (statement->assignment) {
-            AST_ProcessAssignment(statement->assignment);
+    int r = 0;
+
+    if (pipeline) {
+        if (pipeline->assignment) {
+            r = AST_ProcessAssignment(pipeline->assignment);
         } 
-        if (statement->expression) {
-            AST_ProcessExpression(statement->expression);
+        if (pipeline->expression) {
+            r = AST_ProcessExpression(pipeline->expression);
         }
-        if (statement->ifstatement) {
-            AST_ProcessIfStatement(statement->ifstatement);
+        if (pipeline->ifpipeline) {
+            r = AST_ProcessIfPipeline(pipeline->ifpipeline);
         }
-        if (statement->forstatement) {
-            AST_ProcessForStatement(statement->forstatement);
+        if (pipeline->forpipeline) {
+            r = AST_ProcessForPipeline(pipeline->forpipeline);
         }
-        if (statement->tickstatement) {
-            AST_ProcessTickStatement(statement->tickstatement);
+        if (pipeline->tickpipeline) {
+            r = AST_ProcessTickPipeline(pipeline->tickpipeline);
         }
-        if (statement->whilestatement) {
-            AST_ProcessWhileStatement(statement->whilestatement);
+        if (pipeline->whilepipeline) {
+            r = AST_ProcessWhilePipeline(pipeline->whilepipeline);
         }
     }
+
+    return r;
 }
 
-void AST_ProcessProgram(AST_Program_t *program)
+int AST_ProcessList(AST_List_t *pipeline_list)
 {
     int i;
+    int r = 0;
 
-    for (i = 0; i < program->nstatements; i++) {
-        AST_ProcessStatement(program->statements[i]);
+    for (i = 0; i < pipeline_list->npipelines; i++) {
+        r = AST_ProcessPipeline(pipeline_list->pipelines[i]);
     }
+
+    return r;
 }
 
 /****************************************************************************/
@@ -841,73 +934,99 @@ void AST_FreeExpression(AST_Expression_t *expression)
     }
 }
 
-void AST_FreeIfStatement(AST_IfStatement_t *ifstatement)
+void AST_FreeIfPipeline(AST_IfPipeline_t *ifpipeline)
 {
-    if (ifstatement->expression) {
-        AST_FreeExpression(ifstatement->expression);
+    if (ifpipeline->test) {
+        AST_FreeList(ifpipeline->test);
     }
-    if (ifstatement->statement) {
-        AST_FreeStatement(ifstatement->statement);
+    if (ifpipeline->pipeline) {
+        AST_FreePipeline(ifpipeline->pipeline);
     }
-    if (ifstatement->elsestatement) {
-        AST_FreeStatement(ifstatement->elsestatement);
+    if (ifpipeline->elsepipeline) {
+        AST_FreePipeline(ifpipeline->elsepipeline);
     }
-    free(ifstatement);
+    free(ifpipeline);
 }
 
-void AST_FreeForStatement(AST_ForStatement_t *forstatement)
-{
-    free(forstatement);
-}
-
-void AST_FreeTickStatement(AST_Statement_t *tickstatement)
-{
-    free(tickstatement);
-}
-
-void AST_FreeWhileStatement(AST_WhileStatement_t *whilestatement)
-{
-    if (whilestatement->test) {
-        AST_FreeExpression(whilestatement->test);
-    }
-    if (whilestatement->statement) {
-        AST_FreeStatement(whilestatement->statement);
-    }
-    free(whilestatement);
-}
-
-void AST_FreeStatement(AST_Statement_t *statement)
-{
-    if (statement->assignment) {
-        AST_FreeAssignment(statement->assignment);
-    } 
-    if (statement->expression) {
-        AST_FreeExpression(statement->expression);
-    }
-    if (statement->ifstatement) {
-        AST_FreeIfStatement(statement->ifstatement);
-    }
-    if (statement->forstatement) {
-        AST_FreeForStatement(statement->forstatement);
-    }
-    if (statement->tickstatement) {
-        AST_FreeTickStatement(statement->tickstatement);
-    }
-    if (statement->whilestatement) {
-        AST_FreeWhileStatement(statement->whilestatement);
-    }
-    free(statement);
-}
-
-void AST_FreeProgram(AST_Program_t *program)
+void AST_FreeWords(AST_Words_t *words) 
 {
     int i;
 
-    for (i = 0; i < program->nstatements; i++) {
-        AST_FreeStatement(program->statements[i]);
+    if (words->words) {
+        for (i = 0; i < words->nwords; i++) {
+            Scanner_TokenFree(words->words[i]);
+            words->words[i] = NULL;
+        }
+        free(words->words);
+        words->words = NULL;
     }
-    free(program->statements);
-    free(program);
+
+    free(words);
+}
+
+void AST_FreeForPipeline(AST_ForPipeline_t *forpipeline)
+{
+    if (forpipeline->var) {
+        Scanner_TokenFree(forpipeline->var);
+    } 
+    if (forpipeline->words) {
+        AST_FreeWords(forpipeline->words);
+    } 
+    if (forpipeline->list) {
+        AST_FreeList(forpipeline->list);
+    } 
+
+    free(forpipeline);
+}
+
+void AST_FreeTickPipeline(AST_Pipeline_t *tickpipeline)
+{
+    free(tickpipeline);
+}
+
+void AST_FreeWhilePipeline(AST_WhilePipeline_t *whilepipeline)
+{
+    if (whilepipeline->test) {
+        AST_FreeList(whilepipeline->test);
+    }
+    if (whilepipeline->list) {
+        AST_FreeList(whilepipeline->list);
+    }
+    free(whilepipeline);
+}
+
+void AST_FreePipeline(AST_Pipeline_t *pipeline)
+{
+    if (pipeline->assignment) {
+        AST_FreeAssignment(pipeline->assignment);
+    } 
+    if (pipeline->expression) {
+        AST_FreeExpression(pipeline->expression);
+    }
+    if (pipeline->ifpipeline) {
+        AST_FreeIfPipeline(pipeline->ifpipeline);
+    }
+    if (pipeline->forpipeline) {
+        AST_FreeForPipeline(pipeline->forpipeline);
+    }
+    if (pipeline->tickpipeline) {
+        AST_FreeTickPipeline(pipeline->tickpipeline);
+    }
+    if (pipeline->whilepipeline) {
+        AST_FreeWhilePipeline(pipeline->whilepipeline);
+    }
+    free(pipeline);
+}
+
+void AST_FreeList(AST_List_t *list)
+{
+    int i;
+
+    for (i = 0; i < list->npipelines; i++) {
+        AST_FreePipeline(list->pipelines[i]);
+    }
+    free(list->pipelines);
+    free(list);
 }
 
 //------------------------------------------------------------------------------
