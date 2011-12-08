@@ -26,14 +26,17 @@ typedef enum {
     TOKEN_IF     = 20,
     TOKEN_THEN,
     TOKEN_ELSE,
+    TOKEN_ELIF,
     TOKEN_FI,
     TOKEN_FOR,
     TOKEN_IN,
+    TOKEN_BREAK,
+    TOKEN_CONTINUE,
     TOKEN_WHILE,
     TOKEN_DO,
     TOKEN_DONE,
 
-    TOKEN_AND = 30,
+    TOKEN_AND = 40,
     TOKEN_ANDAND,
     TOKEN_OROR,
     TOKEN_LEFTARROW,
@@ -41,6 +44,8 @@ typedef enum {
     TOKEN_EQUALS,
     TOKEN_SEMICOLON,
     TOKEN_TICK,
+    TOKEN_PIPE,
+    TOKEN_NEWLINE,
 
     TOKEN_ERROR = 100,
 } Token_Type_t;
@@ -48,6 +53,7 @@ typedef enum {
 typedef struct {
     Token_Type_t type;
     char        *str;
+    bool         control;
 
     int linenum;
     int colnum;
@@ -70,11 +76,12 @@ typedef struct Parser {
 
     /* Parser Context */
     Token_t *t;
+    bool token_control;
 } Parser_t;
 
 /* Abstract Syntax Tree */
-struct AST_Statement;
-struct AST_Program;
+struct AST_Pipeline;
+struct AST_List;
 
 typedef struct {
     Token_t *file;
@@ -105,35 +112,40 @@ typedef struct AST_Expression {
 } AST_Expression_t;
 
 typedef struct {
-    AST_Expression_t     *expression;
-    struct AST_Statement *statement;
-    struct AST_Statement *elsestatement;
-} AST_IfStatement_t;;
+    struct AST_List      *test;
+    struct AST_Pipeline *pipeline;
+    struct AST_Pipeline *elsepipeline;
+} AST_IfPipeline_t;;
+
+typedef struct AST_Words {
+    Token_t **words;
+    int       nwords;
+} AST_Words_t;
 
 typedef struct {
-    Token_t              *var;
-    struct AST_Statement *statement;
-    struct AST_Program   *program;
-} AST_ForStatement_t;
+    Token_t         *var;
+    AST_Words_t     *words;
+    struct AST_List *list;
+} AST_ForPipeline_t;
 
 typedef struct {
-    AST_Expression_t     *test;
-    struct AST_Statement *statement;
-} AST_WhileStatement_t;
+    struct AST_List   *test;
+    struct AST_List   *list;
+} AST_WhilePipeline_t;
 
-typedef struct AST_Statement {
+typedef struct AST_Pipeline {
     AST_Assignment_t     *assignment;
     AST_Expression_t     *expression;
-    AST_IfStatement_t    *ifstatement;
-    AST_ForStatement_t   *forstatement;
-    AST_WhileStatement_t *whilestatement;
-    struct AST_Statement *tickstatement;
-} AST_Statement_t;
+    AST_IfPipeline_t    *ifpipeline;
+    AST_ForPipeline_t   *forpipeline;
+    AST_WhilePipeline_t *whilepipeline;
+    struct AST_Pipeline *tickpipeline;
+} AST_Pipeline_t;
 
-typedef struct AST_Program {
-    AST_Statement_t  **statements;
-    int nstatements;
-} AST_Program_t;
+typedef struct AST_List {
+    AST_Pipeline_t  **pipelines;
+    int npipelines;
+} AST_List_t;
 
 #define STRING_ESC_CHAR '\\'
 
@@ -150,10 +162,14 @@ void Scanner_TokenAccept(Parser_t *parser);
 void Scanner_TokenFree(Token_t *t);
 
 /* AST Functions */
-AST_Program_t *AST_ParseProgram(Parser_t *parser);
-void AST_PrintProgram(AST_Program_t *program);
-void AST_ProcessProgram(AST_Program_t *program);
-void AST_FreeProgram(AST_Program_t *program);
+AST_List_t *AST_ParseProgram(Parser_t *parser);
+void AST_PrintList(AST_List_t *pipeline_list);
+int  AST_ProcessList(AST_List_t *pipeline_list);
+void AST_FreeList(AST_List_t *pipeline_list);
+
+#define AST_PrintProgram   AST_PrintList
+#define AST_ProcessProgram AST_ProcessList
+#define AST_FreeProgram    AST_FreeList
 
 #endif /* _PARSER_H_ */
 
