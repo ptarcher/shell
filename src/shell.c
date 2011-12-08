@@ -122,6 +122,8 @@ int Command_Test(int argc, char *argv[])
     if (argc > 3 && (strcmp(argv[1], "-n") == 0)) {
         /* Check for empty string */
         return (argv[2][0] != 0);
+    } else if (argc >= 4 && (strcmp(argv[2], "-lt") == 0)) {
+        return (strtol(argv[1], NULL, 0) < strtol(argv[3], NULL, 0)) ? 0 : 1;
     } else if (argc == 2) {
         /* Check for empty string */
         return (argv[1][0] != 0);
@@ -208,7 +210,8 @@ int Shell_RunCommand(int argc, char *argv[], bool background)
     } else if (strcmp(argv[0], "sleep") == 0) {
         r = Command_Sleep(argc, argv);
     } else {
-        r = 0;
+        fprintf(stderr, "%s: not found\n", argv[0]);
+        r = 1;
     }
 
     /* Clean up */
@@ -222,7 +225,7 @@ int Shell_RunCommand(int argc, char *argv[], bool background)
 
 void Shell_ParseInput(Parser_t *parser)
 {
-    AST_Program_t *program;
+    AST_List_t *list;
 
     /* Reset the line */
     parser->c        = parser->getchar(parser, 1000);
@@ -234,11 +237,11 @@ void Shell_ParseInput(Parser_t *parser)
     }
 
     /* Start building the AST */
-    program = AST_ParseProgram(parser);
+    list = AST_ParseProgram(parser);
 
-    AST_PrintProgram(program);
-    AST_ProcessProgram(program);
-    AST_FreeProgram(program);
+    AST_PrintProgram(list);
+    AST_ProcessProgram(list);
+    AST_FreeProgram(list);
 }
 
 void Shell_ParseLine(void) 
@@ -251,6 +254,7 @@ void Shell_ParseLine(void)
     while (fgets(parser.line, sizeof(parser.line), stdin)) {
         parser.linenum  = 1;
         parser.colnum   = 1;
+        parser.token_control = true;
 
         Shell_ParseInput(&parser);
         printf("%s ", prompt);
@@ -276,12 +280,10 @@ void Shell_ParseFile(char *file)
 
     parser.linenum  = 1;
     parser.colnum   = 1;
+    parser.token_control = true;
     parser.getchar  = Shell_FileGetChar;
 
-    //while (fgets(parser.line, sizeof(parser.line), f)) {
-    //    DTRACE("line = %s\n", parser.line);
-        Shell_ParseInput(&parser);
-    //}
+    Shell_ParseInput(&parser);
 
     fclose(f);
 }
@@ -291,7 +293,10 @@ int main(int argc, char *argv[])
     if (argc == 1) {
         Shell_ParseLine();
     } else {
-        Shell_ParseFile(argv[1]);
+        int i;
+        for (i = 1; i < argc; i++) {
+            Shell_ParseFile(argv[1]);
+        }
     }
     env_cleanup();
 
