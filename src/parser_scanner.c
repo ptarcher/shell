@@ -57,9 +57,12 @@ char *_DEBUG_TokenToString(int t)
         case TOKEN_IF:         return "TOKEN_IF";
         case TOKEN_THEN:       return "TOKEN_THEN";
         case TOKEN_ELSE:       return "TOKEN_ELSE";
+        case TOKEN_ELIF:       return "TOKEN_ELIF";
         case TOKEN_FI:         return "TOKEN_FI";
         case TOKEN_FOR:        return "TOKEN_FOR";
         case TOKEN_IN:         return "TOKEN_IN";
+        case TOKEN_CONTINUE:   return "TOKEN_CONTINUE";
+        case TOKEN_BREAK:      return "TOKEN_BREAK";
         case TOKEN_WHILE:      return "TOKEN_WHILE";
         case TOKEN_DO:         return "TOKEN_DO";
         case TOKEN_DONE:       return "TOKEN_DONE";
@@ -72,6 +75,8 @@ char *_DEBUG_TokenToString(int t)
         case TOKEN_EQUALS:     return "TOKEN_EQUALS";
         case TOKEN_SEMICOLON:  return "TOKEN_SEMICOLON";
         case TOKEN_TICK:       return "TOKEN_TICK";
+        case TOKEN_PIPE:       return "TOKEN_PIPE";
+        case TOKEN_NEWLINE:    return "TOKEN_NEWLINE";
 
         case TOKEN_ERROR:      return "TOKEN_ERROR";
         default:               return "TOKEN_UNKNOWN";
@@ -167,9 +172,9 @@ void Scanner_ScanWord(Parser_t *parser)
 
 void Scanner_SkipComments(Parser_t *parser)
 {
-    while (isspace(parser->c) || parser->c == '#') {
+    while ((isspace(parser->c) || parser->c == '#') && (parser->c != '\n')) {
         /* Skip any leading whitespace */
-        while (isspace(parser->c)) {
+        while (isspace(parser->c) && parser->c != '\n') {
             Scanner_Accept(parser, IGNORE_CHAR);
         }
 
@@ -195,27 +200,31 @@ void Scanner_TokenFree(Token_t *t)
 
 Token_t *Scanner_TokenNext(Parser_t *parser)
 {
-    Token_t *token = NULL;
+    Token_t     *token = NULL;
     Token_Type_t type;
+    bool         control = false;
 
     const Scanner_Keyword_t keywords[] = {
-        {"if",      TOKEN_IF},
-        {"then",    TOKEN_THEN},
-        {"else",    TOKEN_ELSE},
-        {"fi",      TOKEN_FI},
-        {"for",     TOKEN_FOR},
-        {"in",      TOKEN_IN},
-        {"while",   TOKEN_WHILE},
-        {"do",      TOKEN_DO},
-        {"done",    TOKEN_DONE},
+        {"if",          TOKEN_IF},
+        {"then",        TOKEN_THEN},
+        {"else",        TOKEN_ELSE},
+        {"elif",        TOKEN_ELIF},
+        {"fi",          TOKEN_FI},
+        {"for",         TOKEN_FOR},
+        {"in",          TOKEN_IN},
+        {"continue",    TOKEN_CONTINUE},
+        {"break",       TOKEN_BREAK},
+        {"while",       TOKEN_WHILE},
+        {"do",          TOKEN_DO},
+        {"done",        TOKEN_DONE},
     };
 
     Scanner_SkipComments(parser);
 
     parser->token_startline = parser->linenum;
     parser->token_startcol  = parser->colnum;
+    parser->token_idx       = 0;
     memset(parser->token, 0, sizeof(parser->token));
-    parser->token_idx = 0;
 
     switch (parser->c) {
         case '&':
@@ -226,16 +235,18 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
             } else {
                 type = TOKEN_AND;
             }
+            control = true;
             break;
 
         case '|':
-            if (Scanner_Inspect(parser, 1) == '|') {
-                Scanner_Accept(parser, STORE_CHAR);
+            Scanner_Accept(parser, STORE_CHAR);
+            if (parser->c == '|') {
                 Scanner_Accept(parser, STORE_CHAR);
                 type = TOKEN_OROR;
             } else {
-                type = TOKEN_ERROR;
+                type = TOKEN_PIPE;
             }
+            control = true;
             break;
 
 #if 0
@@ -281,7 +292,8 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
         }
         case '\n':
             Scanner_Accept(parser, STORE_CHAR);
-            type = TOKEN_SEMICOLON;
+            type = TOKEN_NEWLINE;
+            control = true;
             break;
 
         case '=':
@@ -292,6 +304,7 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
         case ';':
             Scanner_Accept(parser, STORE_CHAR);
             type = TOKEN_SEMICOLON;
+            control = true;
             break;
 
         case EOF:
@@ -387,11 +400,13 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
                 Scanner_ScanWord(parser);
                 type = TOKEN_ID;
 
-                /* Search to see if it is a keyword */
-                for (i = 0; i < countof(keywords); i++) {
-                    if (strcmp(parser->token, keywords[i].keyword) == 0) {
-                        type =  keywords[i].type;
-                        break;
+                if (parser->token_control) {
+                    /* Search to see if it is a keyword */
+                    for (i = 0; i < countof(keywords); i++) {
+                        if (strcmp(parser->token, keywords[i].keyword) == 0) {
+                            type =  keywords[i].type;
+                            break;
+                        }
                     }
                 }
 
@@ -410,9 +425,11 @@ Token_t *Scanner_TokenNext(Parser_t *parser)
     if (((token->str = strdup(parser->token))) == NULL) {
         goto fail;
     }
-    token->type = type;
+    token->type    = type;
+    token->control = control;
     token->linenum = parser->token_startline;
     token->colnum  = parser->token_startcol;
+    parser->token_control = control;
 
     /* Debug Print */
     if (token->type == TOKEN_ERROR) {
