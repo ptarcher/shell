@@ -476,7 +476,6 @@ for_fail:
     return pipeline;
 }
 
-char *tick_token;
 char *tick_ch;
 
 int AST_ParseTickGetChar(struct Parser *parser, int timeout)
@@ -495,8 +494,8 @@ int AST_ParseTickGetChar(struct Parser *parser, int timeout)
 AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
 {
     AST_Pipeline_t *pipeline    = NULL;
-    AST_List_t   *tick_pipeline_list = NULL;
-    Parser_t         tick_parser;
+    AST_List_t     *tick_pipeline_list = NULL;
+    Parser_t        tick_parser;
 
     printf("%s: Start\n", __func__);
 
@@ -504,8 +503,7 @@ AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
     memset(&tick_parser, 0, sizeof(tick_parser));
     tick_parser.linenum = parser->linenum;
     tick_parser.colnum  = parser->colnum;
-    tick_token          = parser->t->str;
-    tick_ch             = tick_token;
+    tick_ch             = parser->t->str;
     tick_parser.getchar = AST_ParseTickGetChar;
 
     /* Setup first char, and token */
@@ -514,14 +512,14 @@ AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
 
     /* Run the tick pipeline_list */
     /* TODO: Set the print path so we can absorb the output */
-    if ((tick_pipeline_list = AST_ParseList(&tick_parser)) == NULL) {
+    if ((tick_pipeline_list = AST_ParseProgram(&tick_parser)) == NULL) {
         goto tick_fail;
     }
 
-    AST_ProcessProgram(tick_pipeline_list);
-    AST_FreeProgram(tick_pipeline_list);
+    AST_ProcessList(tick_pipeline_list);
+    AST_FreeList(tick_pipeline_list);
 
-    /* Consume the whole tick pipeline_list */
+    /* Consume the whole tick token */
     Scanner_TokenConsume(parser);
 
     printf("%s: Done\n", __func__);
