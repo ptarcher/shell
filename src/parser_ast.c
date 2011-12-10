@@ -42,6 +42,7 @@ void AST_FreeAssignment(AST_Assignment_t *assignment);
 void AST_FreeRedirect(AST_Redirect_t *redirect);
 void AST_FreeCommand(AST_Command_t *command);
 void AST_FreeExpression(AST_Expression_t *expression);
+void AST_FreeIfPipeline(AST_IfPipeline_t *ifpipeline);
 void AST_FreePipeline(AST_Pipeline_t *pipeline);
 void AST_FreeList(AST_List_t *pipeline_list);
 
@@ -379,8 +380,11 @@ AST_Pipeline_t *AST_ParseIfPipeline(Parser_t *parser)
     return pipeline;
 
 if_fail:
-    /* TODO: Fail */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
+
+    if (pipeline) {
+        AST_FreePipeline(pipeline);
+    }
 
     return NULL;
 }
@@ -467,13 +471,13 @@ AST_Pipeline_t *AST_ParseForPipeline(Parser_t *parser)
     return pipeline;
 
 for_fail:
-    /* TODO: */
     fprintf(stderr, "ERROR: Parsing %s\n", __func__);
+
     if (pipeline) {
         AST_FreePipeline(pipeline);
     }
 
-    return pipeline;
+    return NULL;
 }
 
 char *tick_ch;
