@@ -6,7 +6,7 @@
 //  Creation Date:  November, 2011
 //
 
-#define USE_DTRACE 1
+#define USE_DTRACE 0
 
 #include <stdio.h>
 #include <stdlib.h>
