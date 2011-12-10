@@ -497,7 +497,7 @@ AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
     AST_List_t     *tick_pipeline_list = NULL;
     Parser_t        tick_parser;
 
-    printf("%s: Start\n", __func__);
+    DTRACE("%s: Start\n", __func__);
 
     /* Setup a new pipeline_list to consume the text between the ticks */
     memset(&tick_parser, 0, sizeof(tick_parser));
@@ -522,7 +522,7 @@ AST_Pipeline_t *AST_ParseTickPipeline(Parser_t *parser)
     /* Consume the whole tick token */
     Scanner_TokenConsume(parser);
 
-    printf("%s: Done\n", __func__);
+    DTRACE("%s: Done\n", __func__);
 
     return pipeline;
 
